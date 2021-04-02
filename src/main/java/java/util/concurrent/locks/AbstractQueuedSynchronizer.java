@@ -362,6 +362,8 @@ public abstract class AbstractQueuedSynchronizer extends AbstractOwnableSynchron
              * Predecessor was cancelled. Skip over predecessors and
              * indicate retry.
              */
+
+            // 中间区域，不会产生竞争
             do {
                 node.prev = pred = pred.prev;
             } while (pred.waitStatus > 0);
@@ -500,6 +502,8 @@ public abstract class AbstractQueuedSynchronizer extends AbstractOwnableSynchron
     /**
      * Wakes up node's successor, if one exists.
      *
+     * 唤醒node节点的后续节点
+     *
      * @param node the node
      */
     private void unparkSuccessor(Node node) {
@@ -621,6 +625,7 @@ public abstract class AbstractQueuedSynchronizer extends AbstractOwnableSynchron
         // Can use unconditional write instead of CAS here.
         // After this atomic step, other Nodes can skip past us.
         // Before, we are free of interference from other threads.
+        // 核心就是设置这个状态。如果后续满足条件能够更新pred.next，固然好，相对能够节省计算资源；不能够更新pred.next也没关系
         node.waitStatus = Node.CANCELLED;
 
         // If we are the tail, remove ourselves.
@@ -636,6 +641,7 @@ public abstract class AbstractQueuedSynchronizer extends AbstractOwnableSynchron
                 if (next != null && next.waitStatus <= 0)
                     compareAndSetNext(pred, predNext, next);
             } else {
+                //unpark可以很好的保持prev和next的一致性，next只是用来加快寻找后续节点
                 unparkSuccessor(node);
             }
 
@@ -668,6 +674,7 @@ public abstract class AbstractQueuedSynchronizer extends AbstractOwnableSynchron
             for (;;) {
                 final Node p = node.predecessor();
                 if (p == head && tryAcquire(arg)) {
+                    //尝试获取锁成功
                     setHead(node);
                     p.next = null; // help GC
                     failed = false;
@@ -1016,8 +1023,10 @@ public abstract class AbstractQueuedSynchronizer extends AbstractOwnableSynchron
     public final boolean release(int arg) {
         if (tryRelease(arg)) {
             Node h = head;
-            if (h != null && h.waitStatus != 0)
+
+            if (h != null && h.waitStatus != 0) {
                 unparkSuccessor(h);
+            }
             return true;
         }
         return false;
@@ -1395,9 +1404,13 @@ public abstract class AbstractQueuedSynchronizer extends AbstractOwnableSynchron
          * case the waitStatus can be transiently and harmlessly wrong).
          */
         Node p = enq(node);
+
         int ws = p.waitStatus;
-        if (ws > 0 || !compareAndSetWaitStatus(p, ws, Node.SIGNAL))
+        if (ws > 0 || !compareAndSetWaitStatus(p, ws, Node.SIGNAL)) {
+            // 就是唤醒wait后，反正也是要等释放锁，所以，这里可能不unpark，在释放锁的时候再真正unpark
             LockSupport.unpark(node.thread);
+        }
+
         return true;
     }
 
@@ -1587,6 +1600,7 @@ public abstract class AbstractQueuedSynchronizer extends AbstractOwnableSynchron
      * <p>
      * Thanks go to Dave Dice, Mark Moir, Victor Luchangco, Bill Scherer and Michael Scott, along with members of
      * JSR-166 expert group, for helpful ideas, discussions, and critiques on the design of this class.
+     *
      */
     static final class Node {
         /** Marker to indicate a node is waiting in shared mode */

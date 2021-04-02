@@ -264,6 +264,8 @@ public class ReentrantReadWriteLock implements ReadWriteLock, java.io.Serializab
      * because getId() is not final, and has been known to be overridden in ways that do not preserve unique mappings.
      */
     static final long getThreadId(Thread thread) {
+        // 不用Thread.getId()的原因是因为，具体Thread实例可以是子类实例，然后覆盖实现了getId()方法
+        // getLongVolatile的原因是为了原子化读取，而对于long和double基本类型，其非volatile变量的简单读写操作不一定是原子的，另外也使得具有了volatile读语义
         return UNSAFE.getLongVolatile(thread, TID_OFFSET);
     }
 
@@ -524,12 +526,15 @@ public class ReentrantReadWriteLock implements ReadWriteLock, java.io.Serializab
          * common case where the next thread to release is the last one to acquire. This is non-volatile since it is
          * just used as a heuristic, and would be great for threads to cache.
          *
-         * <p>
+         * 可以证明，的确不必要volatile
+         *
+         *  <p>
          * Can outlive the Thread for which it is caching the read hold count, but avoids garbage retention by not
          * retaining a reference to the Thread.
          *
          * <p>
          * Accessed via a benign data race; relies on the memory model's final field and out-of-thin-air guarantees.
+         *  不是很理解，可能是历史遗留描述？
          */
         private transient HoldCounter cachedHoldCounter;
         /**
@@ -549,12 +554,18 @@ public class ReentrantReadWriteLock implements ReadWriteLock, java.io.Serializab
          *
          * <p>
          * This allows tracking of read holds for uncontended read locks to be very cheap.
+         *
+         * 也不会有可见性问题。要么是当前线程，后续就都符合“程序顺序规则”happens-before规则；要么不是当前线程，也不会有后续的步骤
          */
         private transient Thread firstReader = null;
         private transient int firstReaderHoldCount;
 
         Sync() {
             readHolds = new ThreadLocalHoldCounter();
+
+            // 按照JSR-133增强后的final语义，ReentrantReadWriteLock实例在构造方法内定义final
+            // Sync变量，因此，后续使用Sync实例时，已经有可见性保证
+            // 故笔者私以为，setState(getState())这里是没有必要的，可能是历史遗留问题
             setState(getState()); // ensures visibility of readHolds
         }
 
@@ -633,6 +644,9 @@ public class ReentrantReadWriteLock implements ReadWriteLock, java.io.Serializab
          * Conditions. So it is possible that their arguments contain
          * both read and write holds that are all released during a
          * condition wait and re-established in tryAcquire.
+         *
+         * <br/>
+         * tryRelease()的"int releases"变量是有用的，这里没用
          */
 
         protected final boolean tryReleaseShared(int unused) {
@@ -645,6 +659,11 @@ public class ReentrantReadWriteLock implements ReadWriteLock, java.io.Serializab
                     firstReaderHoldCount--;
             } else {
                 HoldCounter rh = cachedHoldCounter;
+                // 证明cachedHoldCounter的确不需要volatile修饰：
+                // - 如果是相应于本身线程的HoldCounter实例对象，有“程序顺序规则”happens-before规则，没有问题
+                // - 如果不是相应于本身线程的HoldCounter实例对象，这里有两种情况：
+                //     - 实例对象不可见，“rh==null“判断解决了该情形
+                //     - 实例对象可见，但是tid变量有可见性问题，跟踪"getThreadId(current)"可知，读取tid具有volatile语义，故是原子的，且不具有可见性问题
                 if (rh == null || rh.tid != getThreadId(current))
                     rh = readHolds.get();
                 int count = rh.count;
@@ -670,6 +689,9 @@ public class ReentrantReadWriteLock implements ReadWriteLock, java.io.Serializab
             return new IllegalMonitorStateException("attempt to unlock read lock, not locked by current thread");
         }
 
+        /**
+         * tryAcquire()的"int acquires"变量是有用的，这里没用
+         */
         protected final int tryAcquireShared(int unused) {
             /*
              * Walkthrough:
@@ -917,6 +939,8 @@ public class ReentrantReadWriteLock implements ReadWriteLock, java.io.Serializab
              * only a probabilistic effect since a new reader will not
              * block if there is a waiting writer behind other enabled
              * readers that have not yet drained from the queue.
+             *
+             * 针对“当前读锁被持有，写锁在队列头等待”情形，此时如果再来一个获取读锁请求，则暂时不允许它参与竞争，否则会马上获取读锁成功，那么写锁很容易就饿死
              */
             return apparentlyFirstQueuedIsExclusive();
         }
