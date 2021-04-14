@@ -28,32 +28,25 @@
  *
  *
  *
- * Written by Doug Lea, Bill Scherer, and Michael Scott with
- * assistance from members of JCP JSR-166 Expert Group and released to
- * the public domain, as explained at
- * http://creativecommons.org/publicdomain/zero/1.0/
+ * Written by Doug Lea, Bill Scherer, and Michael Scott with assistance from members of JCP JSR-166 Expert Group and
+ * released to the public domain, as explained at http://creativecommons.org/publicdomain/zero/1.0/
  */
 
 package java.util.concurrent;
-import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicReference;
-import java.util.concurrent.locks.LockSupport;
 
 /**
- * A synchronization point at which threads can pair and swap elements
- * within pairs.  Each thread presents some object on entry to the
- * {@link #exchange exchange} method, matches with a partner thread,
- * and receives its partner's object on return.  An Exchanger may be
- * viewed as a bidirectional form of a {@link SynchronousQueue}.
- * Exchangers may be useful in applications such as genetic algorithms
- * and pipeline designs.
+ * A synchronization point at which threads can pair and swap elements within pairs. Each thread presents some object on
+ * entry to the {@link #exchange exchange} method, matches with a partner thread, and receives its partner's object on
+ * return. An Exchanger may be viewed as a bidirectional form of a {@link SynchronousQueue}. Exchangers may be useful in
+ * applications such as genetic algorithms and pipeline designs.
  *
- * <p><b>Sample Usage:</b>
- * Here are the highlights of a class that uses an {@code Exchanger}
- * to swap buffers between threads so that the thread filling the
- * buffer gets a freshly emptied one when it needs it, handing off the
- * filled one to the thread emptying the buffer.
- *  <pre> {@code
+ * <p>
+ * <b>Sample Usage:</b> Here are the highlights of a class that uses an {@code Exchanger} to swap buffers between
+ * threads so that the thread filling the buffer gets a freshly emptied one when it needs it, handing off the filled one
+ * to the thread emptying the buffer.
+ * 
+ * <pre>
+ *  {@code
  * class FillAndEmpty {
  *   Exchanger<DataBuffer> exchanger = new Exchanger<DataBuffer>();
  *   DataBuffer initialEmptyBuffer = ... a made-up type
@@ -89,14 +82,14 @@ import java.util.concurrent.locks.LockSupport;
  *     new Thread(new FillingLoop()).start();
  *     new Thread(new EmptyingLoop()).start();
  *   }
- * }}</pre>
+ * }}
+ * </pre>
  *
- * <p>Memory consistency effects: For each pair of threads that
- * successfully exchange objects via an {@code Exchanger}, actions
- * prior to the {@code exchange()} in each thread
- * <a href="package-summary.html#MemoryVisibility"><i>happen-before</i></a>
- * those subsequent to a return from the corresponding {@code exchange()}
- * in the other thread.
+ * <p>
+ * Memory consistency effects: For each pair of threads that successfully exchange objects via an {@code Exchanger},
+ * actions prior to the {@code exchange()} in each thread
+ * <a href="package-summary.html#MemoryVisibility"><i>happen-before</i></a> those subsequent to a return from the
+ * corresponding {@code exchange()} in the other thread.
  *
  * @since 1.5
  * @author Doug Lea and Bill Scherer and Michael Scott
@@ -255,22 +248,20 @@ public class Exchanger<V> {
      */
 
     /**
-     * The byte distance (as a shift value) between any two used slots
-     * in the arena.  1 << ASHIFT should be at least cacheline size.
+     * The byte distance (as a shift value) between any two used slots in the arena. 1 << ASHIFT should be at least
+     * cacheline size.
      */
     private static final int ASHIFT = 7;
 
     /**
-     * The maximum supported arena index. The maximum allocatable
-     * arena size is MMASK + 1. Must be a power of two minus one, less
-     * than (1<<(31-ASHIFT)). The cap of 255 (0xff) more than suffices
-     * for the expected scaling limits of the main algorithms.
+     * The maximum supported arena index. The maximum allocatable arena size is MMASK + 1. Must be a power of two minus
+     * one, less than (1<<(31-ASHIFT)). The cap of 255 (0xff) more than suffices for the expected scaling limits of the
+     * main algorithms.
      */
     private static final int MMASK = 0xff;
 
     /**
-     * Unit for sequence/version bits of bound field. Each successful
-     * change to the bound also adds SEQ.
+     * Unit for sequence/version bits of bound field. Each successful change to the bound also adds SEQ.
      */
     private static final int SEQ = MMASK + 1;
 
@@ -278,76 +269,84 @@ public class Exchanger<V> {
     private static final int NCPU = Runtime.getRuntime().availableProcessors();
 
     /**
-     * The maximum slot index of the arena: The number of slots that
-     * can in principle hold all threads without contention, or at
-     * most the maximum indexable value.
+     * The maximum slot index of the arena: The number of slots that can in principle hold all threads without
+     * contention, or at most the maximum indexable value.
      */
     static final int FULL = (NCPU >= (MMASK << 1)) ? MMASK : NCPU >>> 1;
 
     /**
-     * The bound for spins while waiting for a match. The actual
-     * number of iterations will on average be about twice this value
-     * due to randomization. Note: Spinning is disabled when NCPU==1.
+     * The bound for spins while waiting for a match. The actual number of iterations will on average be about twice
+     * this value due to randomization. Note: Spinning is disabled when NCPU==1.
      */
     private static final int SPINS = 1 << 10;
 
     /**
-     * Value representing null arguments/returns from public
-     * methods. Needed because the API originally didn't disallow null
-     * arguments, which it should have.
+     * Value representing null arguments/returns from public methods. Needed because the API originally didn't disallow
+     * null arguments, which it should have.
      */
     private static final Object NULL_ITEM = new Object();
 
     /**
-     * Sentinel value returned by internal exchange methods upon
-     * timeout, to avoid need for separate timed versions of these
-     * methods.
+     * Sentinel value returned by internal exchange methods upon timeout, to avoid need for separate timed versions of
+     * these methods.
      */
     private static final Object TIMED_OUT = new Object();
+    // Unsafe mechanics
+    private static final sun.misc.Unsafe U;
+    private static final long BOUND;
+    private static final long SLOT;
+    private static final long MATCH;
+    private static final long BLOCKER;
+    private static final int ABASE;
 
-    /**
-     * Nodes hold partially exchanged data, plus other per-thread
-     * bookkeeping. Padded via @sun.misc.Contended to reduce memory
-     * contention.
-     */
-    @sun.misc.Contended static final class Node {
-        int index;              // Arena index
-        int bound;              // Last recorded value of Exchanger.bound
-        int collides;           // Number of CAS failures at current bound
-        int hash;               // Pseudo-random for spins
-        Object item;            // This thread's current item
-        volatile Object match;  // Item provided by releasing thread
-        volatile Thread parked; // Set to this thread when parked, else null
-    }
+    static {
+        int s;
+        try {
+            U = sun.misc.Unsafe.getUnsafe();
+            Class<?> ek = Exchanger.class;
+            Class<?> nk = Node.class;
+            Class<?> ak = Node[].class;
+            Class<?> tk = Thread.class;
+            BOUND = U.objectFieldOffset(ek.getDeclaredField("bound"));
+            SLOT = U.objectFieldOffset(ek.getDeclaredField("slot"));
+            MATCH = U.objectFieldOffset(nk.getDeclaredField("match"));
+            BLOCKER = U.objectFieldOffset(tk.getDeclaredField("parkBlocker"));
+            s = U.arrayIndexScale(ak);
+            // ABASE absorbs padding in front of element 0
+            ABASE = U.arrayBaseOffset(ak) + (1 << ASHIFT);
 
-    /** The corresponding thread local class */
-    static final class Participant extends ThreadLocal<Node> {
-        public Node initialValue() { return new Node(); }
+        } catch (Exception e) {
+            throw new Error(e);
+        }
+        if ((s & (s - 1)) != 0 || s > (1 << ASHIFT))
+            throw new Error("Unsupported array scale");
     }
 
     /**
      * Per-thread state
      */
     private final Participant participant;
-
     /**
-     * Elimination array; null until enabled (within slotExchange).
-     * Element accesses use emulation of volatile gets and CAS.
+     * Elimination array; null until enabled (within slotExchange). Element accesses use emulation of volatile gets and
+     * CAS.
      */
     private volatile Node[] arena;
-
     /**
      * Slot used until contention detected.
      */
     private volatile Node slot;
-
     /**
-     * The index of the largest valid arena position, OR'ed with SEQ
-     * number in high bits, incremented on each update.  The initial
-     * update from 0 to SEQ is used to ensure that the arena array is
-     * constructed only once.
+     * The index of the largest valid arena position, OR'ed with SEQ number in high bits, incremented on each update.
+     * The initial update from 0 to SEQ is used to ensure that the arena array is constructed only once.
      */
     private volatile int bound;
+
+    /**
+     * Creates a new Exchanger.
+     */
+    public Exchanger() {
+        participant = new Participant();
+    }
 
     /**
      * Exchange function when arenas enabled. See above for explanation.
@@ -355,25 +354,24 @@ public class Exchanger<V> {
      * @param item the (non-null) item to exchange
      * @param timed true if the wait is timed
      * @param ns if timed, the maximum wait time, else 0L
-     * @return the other thread's item; or null if interrupted; or
-     * TIMED_OUT if timed and timed out
+     * @return the other thread's item; or null if interrupted; or TIMED_OUT if timed and timed out
      */
     private final Object arenaExchange(Object item, boolean timed, long ns) {
         Node[] a = arena;
         Node p = participant.get();
-        for (int i = p.index;;) {                      // access slot at i
-            int b, m, c; long j;                       // j is raw array offset
+        for (int i = p.index;;) { // access slot at i
+            int b, m, c;
+            long j; // j is raw array offset
             Node q = (Node)U.getObjectVolatile(a, j = (i << ASHIFT) + ABASE);
             if (q != null && U.compareAndSwapObject(a, j, q, null)) {
-                Object v = q.item;                     // release
+                Object v = q.item; // release
                 q.match = item;
                 Thread w = q.parked;
                 if (w != null)
                     U.unpark(w);
                 return v;
-            }
-            else if (i <= (m = (b = bound) & MMASK) && q == null) {
-                p.item = item;                         // offer
+            } else if (i <= (m = (b = bound) & MMASK) && q == null) {
+                p.item = item; // offer
                 if (U.compareAndSwapObject(a, j, null, p)) {
                     long end = (timed && m == 0) ? System.nanoTime() + ns : 0L;
                     Thread t = Thread.currentThread(); // wait
@@ -381,61 +379,52 @@ public class Exchanger<V> {
                         Object v = p.match;
                         if (v != null) {
                             U.putOrderedObject(p, MATCH, null);
-                            p.item = null;             // clear for next use
+                            p.item = null; // clear for next use
                             p.hash = h;
                             return v;
-                        }
-                        else if (spins > 0) {
-                            h ^= h << 1; h ^= h >>> 3; h ^= h << 10; // xorshift
-                            if (h == 0)                // initialize hash
+                        } else if (spins > 0) {
+                            h ^= h << 1;
+                            h ^= h >>> 3;
+                            h ^= h << 10; // xorshift
+                            if (h == 0) // initialize hash
                                 h = SPINS | (int)t.getId();
-                            else if (h < 0 &&          // approx 50% true
-                                     (--spins & ((SPINS >>> 1) - 1)) == 0)
-                                Thread.yield();        // two yields per wait
-                        }
-                        else if (U.getObjectVolatile(a, j) != p)
-                            spins = SPINS;       // releaser hasn't set match yet
-                        else if (!t.isInterrupted() && m == 0 &&
-                                 (!timed ||
-                                  (ns = end - System.nanoTime()) > 0L)) {
+                            else if (h < 0 && // approx 50% true
+                                (--spins & ((SPINS >>> 1) - 1)) == 0)
+                                Thread.yield(); // two yields per wait
+                        } else if (U.getObjectVolatile(a, j) != p)
+                            spins = SPINS; // releaser hasn't set match yet
+                        else if (!t.isInterrupted() && m == 0 && (!timed || (ns = end - System.nanoTime()) > 0L)) {
                             U.putObject(t, BLOCKER, this); // emulate LockSupport
-                            p.parked = t;              // minimize window
+                            p.parked = t; // minimize window
                             if (U.getObjectVolatile(a, j) == p)
                                 U.park(false, ns);
                             p.parked = null;
                             U.putObject(t, BLOCKER, null);
-                        }
-                        else if (U.getObjectVolatile(a, j) == p &&
-                                 U.compareAndSwapObject(a, j, p, null)) {
-                            if (m != 0)                // try to shrink
+                        } else if (U.getObjectVolatile(a, j) == p && U.compareAndSwapObject(a, j, p, null)) {
+                            if (m != 0) // try to shrink
                                 U.compareAndSwapInt(this, BOUND, b, b + SEQ - 1);
                             p.item = null;
                             p.hash = h;
-                            i = p.index >>>= 1;        // descend
+                            i = p.index >>>= 1; // descend
                             if (Thread.interrupted())
                                 return null;
                             if (timed && m == 0 && ns <= 0L)
                                 return TIMED_OUT;
-                            break;                     // expired; restart
+                            break; // expired; restart
                         }
                     }
-                }
-                else
-                    p.item = null;                     // clear offer
-            }
-            else {
-                if (p.bound != b) {                    // stale; reset
+                } else
+                    p.item = null; // clear offer
+            } else {
+                if (p.bound != b) { // stale; reset
                     p.bound = b;
                     p.collides = 0;
                     i = (i != m || m == 0) ? m : m - 1;
-                }
-                else if ((c = p.collides) < m || m == FULL ||
-                         !U.compareAndSwapInt(this, BOUND, b, b + SEQ + 1)) {
+                } else if ((c = p.collides) < m || m == FULL || !U.compareAndSwapInt(this, BOUND, b, b + SEQ + 1)) {
                     p.collides = c + 1;
-                    i = (i == 0) ? m : i - 1;          // cyclically traverse
-                }
-                else
-                    i = m + 1;                         // grow
+                    i = (i == 0) ? m : i - 1; // cyclically traverse
+                } else
+                    i = m + 1; // grow
                 p.index = i;
             }
         }
@@ -447,9 +436,8 @@ public class Exchanger<V> {
      * @param item the item to exchange
      * @param timed true if the wait is timed
      * @param ns if timed, the maximum wait time, else 0L
-     * @return the other thread's item; or null if either the arena
-     * was enabled or the thread was interrupted before completion; or
-     * TIMED_OUT if timed and timed out
+     * @return the other thread's item; or null if either the arena was enabled or the thread was interrupted before
+     *         completion; or TIMED_OUT if timed and timed out
      */
     private final Object slotExchange(Object item, boolean timed, long ns) {
         Node p = participant.get();
@@ -468,11 +456,9 @@ public class Exchanger<V> {
                     return v;
                 }
                 // create arena on contention, but continue until slot null
-                if (NCPU > 1 && bound == 0 &&
-                    U.compareAndSwapInt(this, BOUND, 0, SEQ))
+                if (NCPU > 1 && bound == 0 && U.compareAndSwapInt(this, BOUND, 0, SEQ))
                     arena = new Node[(FULL + 2) << ASHIFT];
-            }
-            else if (arena != null)
+            } else if (arena != null)
                 return null; // caller must reroute to arenaExchange
             else {
                 p.item = item;
@@ -489,24 +475,23 @@ public class Exchanger<V> {
         Object v;
         while ((v = p.match) == null) {
             if (spins > 0) {
-                h ^= h << 1; h ^= h >>> 3; h ^= h << 10;
+                h ^= h << 1;
+                h ^= h >>> 3;
+                h ^= h << 10;
                 if (h == 0)
                     h = SPINS | (int)t.getId();
                 else if (h < 0 && (--spins & ((SPINS >>> 1) - 1)) == 0)
                     Thread.yield();
-            }
-            else if (slot != p)
+            } else if (slot != p)
                 spins = SPINS;
-            else if (!t.isInterrupted() && arena == null &&
-                     (!timed || (ns = end - System.nanoTime()) > 0L)) {
+            else if (!t.isInterrupted() && arena == null && (!timed || (ns = end - System.nanoTime()) > 0L)) {
                 U.putObject(t, BLOCKER, this);
                 p.parked = t;
                 if (slot == p)
                     U.park(false, ns);
                 p.parked = null;
                 U.putObject(t, BLOCKER, null);
-            }
-            else if (U.compareAndSwapObject(this, SLOT, p, null)) {
+            } else if (U.compareAndSwapObject(this, SLOT, p, null)) {
                 v = timed && ns <= 0L && !t.isInterrupted() ? TIMED_OUT : null;
                 break;
             }
@@ -518,147 +503,115 @@ public class Exchanger<V> {
     }
 
     /**
-     * Creates a new Exchanger.
-     */
-    public Exchanger() {
-        participant = new Participant();
-    }
-
-    /**
-     * Waits for another thread to arrive at this exchange point (unless
-     * the current thread is {@linkplain Thread#interrupt interrupted}),
-     * and then transfers the given object to it, receiving its object
-     * in return.
+     * Waits for another thread to arrive at this exchange point (unless the current thread is
+     * {@linkplain Thread#interrupt interrupted}), and then transfers the given object to it, receiving its object in
+     * return.
      *
-     * <p>If another thread is already waiting at the exchange point then
-     * it is resumed for thread scheduling purposes and receives the object
-     * passed in by the current thread.  The current thread returns immediately,
-     * receiving the object passed to the exchange by that other thread.
+     * <p>
+     * If another thread is already waiting at the exchange point then it is resumed for thread scheduling purposes and
+     * receives the object passed in by the current thread. The current thread returns immediately, receiving the object
+     * passed to the exchange by that other thread.
      *
-     * <p>If no other thread is already waiting at the exchange then the
-     * current thread is disabled for thread scheduling purposes and lies
-     * dormant until one of two things happens:
+     * <p>
+     * If no other thread is already waiting at the exchange then the current thread is disabled for thread scheduling
+     * purposes and lies dormant until one of two things happens:
      * <ul>
      * <li>Some other thread enters the exchange; or
-     * <li>Some other thread {@linkplain Thread#interrupt interrupts}
-     * the current thread.
+     * <li>Some other thread {@linkplain Thread#interrupt interrupts} the current thread.
      * </ul>
-     * <p>If the current thread:
+     * <p>
+     * If the current thread:
      * <ul>
      * <li>has its interrupted status set on entry to this method; or
-     * <li>is {@linkplain Thread#interrupt interrupted} while waiting
-     * for the exchange,
+     * <li>is {@linkplain Thread#interrupt interrupted} while waiting for the exchange,
      * </ul>
-     * then {@link InterruptedException} is thrown and the current thread's
-     * interrupted status is cleared.
+     * then {@link InterruptedException} is thrown and the current thread's interrupted status is cleared.
      *
      * @param x the object to exchange
      * @return the object provided by the other thread
-     * @throws InterruptedException if the current thread was
-     *         interrupted while waiting
+     * @throws InterruptedException if the current thread was interrupted while waiting
      */
     @SuppressWarnings("unchecked")
     public V exchange(V x) throws InterruptedException {
         Object v;
         Object item = (x == null) ? NULL_ITEM : x; // translate null args
-        if ((arena != null ||
-             (v = slotExchange(item, false, 0L)) == null) &&
-            ((Thread.interrupted() || // disambiguates null return
-              (v = arenaExchange(item, false, 0L)) == null)))
+        if ((arena != null || (v = slotExchange(item, false, 0L)) == null) && ((Thread.interrupted() || // disambiguates
+                                                                                                        // null return
+            (v = arenaExchange(item, false, 0L)) == null)))
             throw new InterruptedException();
         return (v == NULL_ITEM) ? null : (V)v;
     }
 
     /**
-     * Waits for another thread to arrive at this exchange point (unless
-     * the current thread is {@linkplain Thread#interrupt interrupted} or
-     * the specified waiting time elapses), and then transfers the given
+     * Waits for another thread to arrive at this exchange point (unless the current thread is
+     * {@linkplain Thread#interrupt interrupted} or the specified waiting time elapses), and then transfers the given
      * object to it, receiving its object in return.
      *
-     * <p>If another thread is already waiting at the exchange point then
-     * it is resumed for thread scheduling purposes and receives the object
-     * passed in by the current thread.  The current thread returns immediately,
-     * receiving the object passed to the exchange by that other thread.
+     * <p>
+     * If another thread is already waiting at the exchange point then it is resumed for thread scheduling purposes and
+     * receives the object passed in by the current thread. The current thread returns immediately, receiving the object
+     * passed to the exchange by that other thread.
      *
-     * <p>If no other thread is already waiting at the exchange then the
-     * current thread is disabled for thread scheduling purposes and lies
-     * dormant until one of three things happens:
+     * <p>
+     * If no other thread is already waiting at the exchange then the current thread is disabled for thread scheduling
+     * purposes and lies dormant until one of three things happens:
      * <ul>
      * <li>Some other thread enters the exchange; or
-     * <li>Some other thread {@linkplain Thread#interrupt interrupts}
-     * the current thread; or
+     * <li>Some other thread {@linkplain Thread#interrupt interrupts} the current thread; or
      * <li>The specified waiting time elapses.
      * </ul>
-     * <p>If the current thread:
+     * <p>
+     * If the current thread:
      * <ul>
      * <li>has its interrupted status set on entry to this method; or
-     * <li>is {@linkplain Thread#interrupt interrupted} while waiting
-     * for the exchange,
+     * <li>is {@linkplain Thread#interrupt interrupted} while waiting for the exchange,
      * </ul>
-     * then {@link InterruptedException} is thrown and the current thread's
-     * interrupted status is cleared.
+     * then {@link InterruptedException} is thrown and the current thread's interrupted status is cleared.
      *
-     * <p>If the specified waiting time elapses then {@link
-     * TimeoutException} is thrown.  If the time is less than or equal
+     * <p>
+     * If the specified waiting time elapses then {@link TimeoutException} is thrown. If the time is less than or equal
      * to zero, the method will not wait at all.
      *
      * @param x the object to exchange
      * @param timeout the maximum time to wait
      * @param unit the time unit of the {@code timeout} argument
      * @return the object provided by the other thread
-     * @throws InterruptedException if the current thread was
-     *         interrupted while waiting
-     * @throws TimeoutException if the specified waiting time elapses
-     *         before another thread enters the exchange
+     * @throws InterruptedException if the current thread was interrupted while waiting
+     * @throws TimeoutException if the specified waiting time elapses before another thread enters the exchange
      */
     @SuppressWarnings("unchecked")
-    public V exchange(V x, long timeout, TimeUnit unit)
-        throws InterruptedException, TimeoutException {
+    public V exchange(V x, long timeout, TimeUnit unit) throws InterruptedException, TimeoutException {
         Object v;
         Object item = (x == null) ? NULL_ITEM : x;
         long ns = unit.toNanos(timeout);
-        if ((arena != null ||
-             (v = slotExchange(item, true, ns)) == null) &&
-            ((Thread.interrupted() ||
-              (v = arenaExchange(item, true, ns)) == null)))
+        if ((arena != null || (v = slotExchange(item, true, ns)) == null)
+            && ((Thread.interrupted() || (v = arenaExchange(item, true, ns)) == null)))
             throw new InterruptedException();
         if (v == TIMED_OUT)
             throw new TimeoutException();
         return (v == NULL_ITEM) ? null : (V)v;
     }
 
-    // Unsafe mechanics
-    private static final sun.misc.Unsafe U;
-    private static final long BOUND;
-    private static final long SLOT;
-    private static final long MATCH;
-    private static final long BLOCKER;
-    private static final int ABASE;
-    static {
-        int s;
-        try {
-            U = sun.misc.Unsafe.getUnsafe();
-            Class<?> ek = Exchanger.class;
-            Class<?> nk = Node.class;
-            Class<?> ak = Node[].class;
-            Class<?> tk = Thread.class;
-            BOUND = U.objectFieldOffset
-                (ek.getDeclaredField("bound"));
-            SLOT = U.objectFieldOffset
-                (ek.getDeclaredField("slot"));
-            MATCH = U.objectFieldOffset
-                (nk.getDeclaredField("match"));
-            BLOCKER = U.objectFieldOffset
-                (tk.getDeclaredField("parkBlocker"));
-            s = U.arrayIndexScale(ak);
-            // ABASE absorbs padding in front of element 0
-            ABASE = U.arrayBaseOffset(ak) + (1 << ASHIFT);
+    /**
+     * Nodes hold partially exchanged data, plus other per-thread bookkeeping. Padded via @sun.misc.Contended to reduce
+     * memory contention.
+     */
+    @sun.misc.Contended
+    static final class Node {
+        int index; // Arena index
+        int bound; // Last recorded value of Exchanger.bound
+        int collides; // Number of CAS failures at current bound
+        int hash; // Pseudo-random for spins
+        Object item; // This thread's current item
+        volatile Object match; // Item provided by releasing thread
+        volatile Thread parked; // Set to this thread when parked, else null
+    }
 
-        } catch (Exception e) {
-            throw new Error(e);
+    /** The corresponding thread local class */
+    static final class Participant extends ThreadLocal<Node> {
+        public Node initialValue() {
+            return new Node();
         }
-        if ((s & (s-1)) != 0 || s > (1 << ASHIFT))
-            throw new Error("Unsupported array scale");
     }
 
 }
