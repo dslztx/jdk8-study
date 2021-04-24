@@ -169,7 +169,7 @@ public class Exchanger<V> {
      * bounds by using a version (sequence) number on the "bound"
      * field, and conservatively reset collision counts when a
      * participant notices that bound has been updated (in either
-     * direction).
+     * direction，即“放大”或者“缩小”都可以).
      *
      * The effective arena size is reduced (when there is more than
      * one slot) by giving up on waiting after a while and trying to
@@ -209,11 +209,11 @@ public class Exchanger<V> {
      * so simpler/faster control policies work better than more
      * accurate but slower ones.
      *
-     * Because we use expiration for arena size control, we cannot
+     * //DSLZTX note: Because we use expiration for arena size control, we cannot
      * throw TimeoutExceptions in the timed version of the public
      * exchange method until the arena size has shrunken to zero (or
      * the arena isn't enabled). This may delay response to timeout
-     * but is still within spec.
+     * but is still within spec（标准，规范）.
      *
      * Essentially all of the implementation is in methods
      * slotExchange and arenaExchange. These have similar overall
@@ -244,12 +244,15 @@ public class Exchanger<V> {
      * slot CASes, it would also be legal for the write to Node.match
      * in a release to be weaker than a full volatile write. However,
      * this is not done because it could allow further postponement of
-     * the write, delaying progress.)
+     * the write, delaying progress.表达的意思是：对slot的CAS操作足够保障内存可见性语义，match字段本就可以不需要由volatile
+     * 修饰，现在仍然用volatile修饰，是为了立即写回主存，避免延迟)
      */
 
     /**
      * The byte distance (as a shift value) between any two used slots in the arena. 1 << ASHIFT should be at least
      * cacheline size.
+     *
+     * 1<<7一般已大于Cache Line Size，即便Cache Line Size=1<<7，由于字节对齐，相差128个字节的两个元素也不会被放置在同一个Cache Line
      */
     private static final int ASHIFT = 7;
 
@@ -257,6 +260,8 @@ public class Exchanger<V> {
      * The maximum supported arena index. The maximum allocatable arena size is MMASK + 1. Must be a power of two minus
      * one, less than (1<<(31-ASHIFT)). The cap of 255 (0xff) more than suffices for the expected scaling limits of the
      * main algorithms.
+     *
+     * 根据`i <= (m = (b = bound) & MMASK) `，可知最大索引是MMASK，最大大小即为MMASK+1
      */
     private static final int MMASK = 0xff;
 
@@ -311,8 +316,11 @@ public class Exchanger<V> {
             SLOT = U.objectFieldOffset(ek.getDeclaredField("slot"));
             MATCH = U.objectFieldOffset(nk.getDeclaredField("match"));
             BLOCKER = U.objectFieldOffset(tk.getDeclaredField("parkBlocker"));
+
+            // 返回数组中一个元素占用的大小，这个大小就是Node对象的大小，不计算填充字节的
             s = U.arrayIndexScale(ak);
             // ABASE absorbs padding in front of element 0
+            // U.arrayBaseOffset(ak)是数组的起始内存地址，所以ABASE表示数组第"1<<ASHIFT"个字节的位置
             ABASE = U.arrayBaseOffset(ak) + (1 << ASHIFT);
 
         } catch (Exception e) {
@@ -324,11 +332,14 @@ public class Exchanger<V> {
 
     /**
      * Per-thread state
+     *
+     * 线程私有变量
      */
     private final Participant participant;
+
     /**
-     * Elimination array; null until enabled (within slotExchange). Element accesses use emulation of volatile gets and
-     * CAS.
+     * Elimination array; null until enabled (within slotExchange). Element accesses use emulation of volatile
+     * gets（即“U.getObjectVolatile”方法） and CAS（即“U.compareAndSwapObject”方法）.
      */
     private volatile Node[] arena;
     /**
@@ -355,15 +366,21 @@ public class Exchanger<V> {
      * @param timed true if the wait is timed
      * @param ns if timed, the maximum wait time, else 0L
      * @return the other thread's item; or null if interrupted; or TIMED_OUT if timed and timed out
+     *
+     *
      */
     private final Object arenaExchange(Object item, boolean timed, long ns) {
+
         Node[] a = arena;
         Node p = participant.get();
         for (int i = p.index;;) { // access slot at i
             int b, m, c;
             long j; // j is raw array offset
+
+            //应该是要拿j这个位置开始的4个字节对应的对象引用变量值
             Node q = (Node)U.getObjectVolatile(a, j = (i << ASHIFT) + ABASE);
             if (q != null && U.compareAndSwapObject(a, j, q, null)) {
+                // 找到配对
                 Object v = q.item; // release
                 q.match = item;
                 Thread w = q.parked;
@@ -371,10 +388,15 @@ public class Exchanger<V> {
                     U.unpark(w);
                 return v;
             } else if (i <= (m = (b = bound) & MMASK) && q == null) {
+                // `i <= (m = (b = bound) & MMASK)`一般都是会满足的，除非bound被缩小
+                // 没有配对，尝试去放置，等待被配对
                 p.item = item; // offer
                 if (U.compareAndSwapObject(a, j, null, p)) {
+                    //当m=1时，关于超时对应上面`DSLZTX note:`
                     long end = (timed && m == 0) ? System.nanoTime() + ns : 0L;
                     Thread t = Thread.currentThread(); // wait
+
+                    // 先尝试一定次数的自旋
                     for (int h = p.hash, spins = SPINS;;) {
                         Object v = p.match;
                         if (v != null) {
@@ -394,6 +416,7 @@ public class Exchanger<V> {
                         } else if (U.getObjectVolatile(a, j) != p)
                             spins = SPINS; // releaser hasn't set match yet
                         else if (!t.isInterrupted() && m == 0 && (!timed || (ns = end - System.nanoTime()) > 0L)) {
+                            // 只有当m=0，也即i=0时，才允许挂起，否则不允许挂起，因为可能出现，在非i=0槽存放元素等待被匹配，长久甚至永远不能被匹配
                             U.putObject(t, BLOCKER, this); // emulate LockSupport
                             p.parked = t; // minimize window
                             if (U.getObjectVolatile(a, j) == p)
@@ -401,29 +424,59 @@ public class Exchanger<V> {
                             p.parked = null;
                             U.putObject(t, BLOCKER, null);
                         } else if (U.getObjectVolatile(a, j) == p && U.compareAndSwapObject(a, j, p, null)) {
+
+                            // 经过一定次数自旋仍然未被配对
+
                             if (m != 0) // try to shrink
+                            {
+                                //m!=0，表示之前放大过，现在缩小。因为"(b+SEQ-1) & MMASK"，相当于减1
                                 U.compareAndSwapInt(this, BOUND, b, b + SEQ - 1);
+                            }
+
                             p.item = null;
                             p.hash = h;
+                            //缩小
                             i = p.index >>>= 1; // descend
-                            if (Thread.interrupted())
+
+
+                            if (Thread.interrupted()) {
+                                //有中断
                                 return null;
-                            if (timed && m == 0 && ns <= 0L)
+                            }
+                            if (timed && m == 0 && ns <= 0L) {
+                                //当m=1时，关于超时对应上面`DSLZTX note:`
+                                //超时，前提是m=0，即未放大
                                 return TIMED_OUT;
+                            }
                             break; // expired; restart
                         }
                     }
-                } else
+                } else {
+                    // 该槽被竞争抢占了
                     p.item = null; // clear offer
+                }
             } else {
+
+                // 走到这里，两种情形：
+                // 1. q!=null，执行`U.compareAndSwapObject(a, j, q, null)`语句返回false，表示出现竞争一个待匹配元素
+                // 2. q=null，执行`i <= (m = (b = bound) & MMASK)`语句返回false，表示前一个循环将bound缩小了
+                // 第1种情形体现竞争激烈
+
                 if (p.bound != b) { // stale; reset
+                    // 重新设置p.bound值，重置该p.bound值情形下的冲突次数
                     p.bound = b;
                     p.collides = 0;
                     i = (i != m || m == 0) ? m : m - 1;
                 } else if ((c = p.collides) < m || m == FULL || !U.compareAndSwapInt(this, BOUND, b, b + SEQ + 1)) {
+                    // 循环设置i的3种情形：
+                    // 1. 冲突次数未到m，即冲突还不够多，没必要再放大数组
+                    // 2. m=FULL，已经不能再放大数组了，否则后面要超出数组大小
+                    // 3. `U.compareAndSwapInt(this, BOUND, b, b + SEQ + 1) `执行返回false，表示已经在另一个线程中完成放大了，这里不要再放大数组。因为`(b+SEQ+1) & MMASK`，相当于加1
+
                     p.collides = c + 1;
                     i = (i == 0) ? m : i - 1; // cyclically traverse
                 } else
+                    // 数组放大
                     i = m + 1; // grow
                 p.index = i;
             }
@@ -440,14 +493,18 @@ public class Exchanger<V> {
      *         completion; or TIMED_OUT if timed and timed out
      */
     private final Object slotExchange(Object item, boolean timed, long ns) {
+        // 线程私有节点
         Node p = participant.get();
+
         Thread t = Thread.currentThread();
         if (t.isInterrupted()) // preserve interrupt status so caller can recheck
             return null;
 
         for (Node q;;) {
             if ((q = slot) != null) {
+                // slot槽已经有数据，即已有待配对数据
                 if (U.compareAndSwapObject(this, SLOT, q, null)) {
+                    // 成功配对
                     Object v = q.item;
                     q.match = item;
                     Thread w = q.parked;
@@ -455,15 +512,22 @@ public class Exchanger<V> {
                         U.unpark(w);
                     return v;
                 }
+
                 // create arena on contention, but continue until slot null
+                // 走到这里，说明有竞争存在
                 if (NCPU > 1 && bound == 0 && U.compareAndSwapInt(this, BOUND, 0, SEQ))
                     arena = new Node[(FULL + 2) << ASHIFT];
             } else if (arena != null)
+                // 不再使用slot单槽，而是使用arena槽数组
                 return null; // caller must reroute to arenaExchange
             else {
                 p.item = item;
+
+                // 尝试等待被配对
                 if (U.compareAndSwapObject(this, SLOT, null, p))
                     break;
+
+                // 有竞争存在，已经有等待被配对的数据
                 p.item = null;
             }
         }
@@ -473,6 +537,8 @@ public class Exchanger<V> {
         long end = timed ? System.nanoTime() + ns : 0L;
         int spins = (NCPU > 1) ? SPINS : 1;
         Object v;
+
+        // 等待被配对，先尝试自旋，自旋一定次数后如果仍然失败，则挂起
         while ((v = p.match) == null) {
             if (spins > 0) {
                 h ^= h << 1;
@@ -492,6 +558,7 @@ public class Exchanger<V> {
                 p.parked = null;
                 U.putObject(t, BLOCKER, null);
             } else if (U.compareAndSwapObject(this, SLOT, p, null)) {
+                // 可能被中断、超时，或者arena数组不为空
                 v = timed && ns <= 0L && !t.isInterrupted() ? TIMED_OUT : null;
                 break;
             }
@@ -595,6 +662,8 @@ public class Exchanger<V> {
     /**
      * Nodes hold partially exchanged data, plus other per-thread bookkeeping. Padded via @sun.misc.Contended to reduce
      * memory contention.
+     *
+     * //Contended注解用于消除Node内实例成员变量的伪共享
      */
     @sun.misc.Contended
     static final class Node {
