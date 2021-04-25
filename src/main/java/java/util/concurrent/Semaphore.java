@@ -44,7 +44,7 @@ import java.util.concurrent.locks.AbstractQueuedSynchronizer;
  * available and acts accordingly.
  *
  * <p>
- * Semaphores are often used to restrict the number of threads than can access some (physical or logical) resource. For
+ * Semaphores are often used to restrict the number of threads that can access some (physical or logical) resource. For
  * example, here is a class that uses a semaphore to control access to a pool of items:
  * 
  * <pre>
