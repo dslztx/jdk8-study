@@ -203,7 +203,7 @@ public class CyclicBarrier {
         throws InterruptedException, BrokenBarrierException, TimeoutException {
         final ReentrantLock lock = this.lock;
 
-        //由于有这个加锁操作的存在，并发的dowait调用之间不会冲突，不过后续调用await的时候会先释放锁
+        // 由于有这个加锁操作的存在，并发的dowait调用之间不会冲突，不过后续调用await的时候会先释放锁
         lock.lock();
         try {
             final Generation g = generation;
@@ -227,7 +227,7 @@ public class CyclicBarrier {
                     nextGeneration();
                     return 0;
                 } finally {
-                    //ranAction=false的唯一可能是command.run()运行抛出异常
+                    // ranAction=false的唯一可能是command.run()运行抛出异常
                     if (!ranAction)
                         breakBarrier();
                 }
@@ -242,7 +242,7 @@ public class CyclicBarrier {
                         nanos = trip.awaitNanos(nanos);
                 } catch (InterruptedException ie) {
                     if (g == generation && !g.broken) {
-                        //有可能已经成功，也有可能已经置为失败状态了，不重复做
+                        // 有可能已经成功，也有可能已经置为失败状态了，不重复做
 
                         breakBarrier();
                         throw ie;
@@ -262,7 +262,7 @@ public class CyclicBarrier {
                     return index;
 
                 if (timed && nanos <= 0L) {
-                    //表示传入了非法参数 或者 等待超时
+                    // 表示传入了非法参数 或者 等待超时
                     breakBarrier();
                     throw new TimeoutException();
                 }
@@ -328,7 +328,7 @@ public class CyclicBarrier {
         try {
             return dowait(false, 0L);
         } catch (TimeoutException toe) {
-            //不会发生，因为这个接口本身不支持超时
+            // 不会发生，因为这个接口本身不支持超时
             throw new Error(toe); // cannot happen
         }
     }

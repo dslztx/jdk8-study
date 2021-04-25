@@ -377,7 +377,7 @@ public class Exchanger<V> {
             int b, m, c;
             long j; // j is raw array offset
 
-            //应该是要拿j这个位置开始的4个字节对应的对象引用变量值
+            // 应该是要拿j这个位置开始的4个字节对应的对象引用变量值
             Node q = (Node)U.getObjectVolatile(a, j = (i << ASHIFT) + ABASE);
             if (q != null && U.compareAndSwapObject(a, j, q, null)) {
                 // 找到配对
@@ -392,7 +392,7 @@ public class Exchanger<V> {
                 // 没有配对，尝试去放置，等待被配对
                 p.item = item; // offer
                 if (U.compareAndSwapObject(a, j, null, p)) {
-                    //当m=1时，关于超时对应上面`DSLZTX note:`
+                    // 当m=1时，关于超时对应上面`DSLZTX note:`
                     long end = (timed && m == 0) ? System.nanoTime() + ns : 0L;
                     Thread t = Thread.currentThread(); // wait
 
@@ -429,23 +429,22 @@ public class Exchanger<V> {
 
                             if (m != 0) // try to shrink
                             {
-                                //m!=0，表示之前放大过，现在缩小。因为"(b+SEQ-1) & MMASK"，相当于减1
+                                // m!=0，表示之前放大过，现在缩小。因为"(b+SEQ-1) & MMASK"，相当于减1
                                 U.compareAndSwapInt(this, BOUND, b, b + SEQ - 1);
                             }
 
                             p.item = null;
                             p.hash = h;
-                            //缩小
+                            // 缩小
                             i = p.index >>>= 1; // descend
 
-
                             if (Thread.interrupted()) {
-                                //有中断
+                                // 有中断
                                 return null;
                             }
                             if (timed && m == 0 && ns <= 0L) {
-                                //当m=1时，关于超时对应上面`DSLZTX note:`
-                                //超时，前提是m=0，即未放大
+                                // 当m=1时，关于超时对应上面`DSLZTX note:`
+                                // 超时，前提是m=0，即未放大
                                 return TIMED_OUT;
                             }
                             break; // expired; restart
@@ -471,7 +470,8 @@ public class Exchanger<V> {
                     // 循环设置i的3种情形：
                     // 1. 冲突次数未到m，即冲突还不够多，没必要再放大数组
                     // 2. m=FULL，已经不能再放大数组了，否则后面要超出数组大小
-                    // 3. `U.compareAndSwapInt(this, BOUND, b, b + SEQ + 1) `执行返回false，表示已经在另一个线程中完成放大了，这里不要再放大数组。因为`(b+SEQ+1) & MMASK`，相当于加1
+                    // 3. `U.compareAndSwapInt(this, BOUND, b, b + SEQ + 1)
+                    // `执行返回false，表示已经在另一个线程中完成放大了，这里不要再放大数组。因为`(b+SEQ+1) & MMASK`，相当于加1
 
                     p.collides = c + 1;
                     i = (i == 0) ? m : i - 1; // cyclically traverse
