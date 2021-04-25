@@ -117,7 +117,7 @@ import java.util.concurrent.locks.ReentrantLock;
  * <p>
  * The {@code CyclicBarrier} uses an all-or-none breakage model for failed synchronization attempts: If a thread leaves
  * a barrier point prematurely because of interruption, failure, or timeout, all other threads waiting at that barrier
- * point will also leave abnormally via {@link BrokenBarrierException} (or {@link InterruptedException} if they too were
+ * point will also leave abnormally via {@link BrokenBarrierException} (or {@link InterruptedException} if they two were
  * interrupted at about the same time).
  *
  * <p>
@@ -202,6 +202,8 @@ public class CyclicBarrier {
     private int dowait(boolean timed, long nanos)
         throws InterruptedException, BrokenBarrierException, TimeoutException {
         final ReentrantLock lock = this.lock;
+
+        //由于有这个加锁操作的存在，并发的dowait调用之间不会冲突，不过后续调用await的时候会先释放锁
         lock.lock();
         try {
             final Generation g = generation;
@@ -225,6 +227,7 @@ public class CyclicBarrier {
                     nextGeneration();
                     return 0;
                 } finally {
+                    //ranAction=false的唯一可能是command.run()运行抛出异常
                     if (!ranAction)
                         breakBarrier();
                 }
@@ -239,6 +242,8 @@ public class CyclicBarrier {
                         nanos = trip.awaitNanos(nanos);
                 } catch (InterruptedException ie) {
                     if (g == generation && !g.broken) {
+                        //有可能已经成功，也有可能已经置为失败状态了，不重复做
+
                         breakBarrier();
                         throw ie;
                     } else {
@@ -252,10 +257,12 @@ public class CyclicBarrier {
                 if (g.broken)
                     throw new BrokenBarrierException();
 
+                // 表示成功，已经被置为下一轮
                 if (g != generation)
                     return index;
 
                 if (timed && nanos <= 0L) {
+                    //表示传入了非法参数 或者 等待超时
                     breakBarrier();
                     throw new TimeoutException();
                 }
@@ -321,6 +328,7 @@ public class CyclicBarrier {
         try {
             return dowait(false, 0L);
         } catch (TimeoutException toe) {
+            //不会发生，因为这个接口本身不支持超时
             throw new Error(toe); // cannot happen
         }
     }
