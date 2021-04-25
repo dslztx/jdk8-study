@@ -292,9 +292,14 @@ public class CountDownLatch {
             // Decrement count; signal when transition to zero
             for (;;) {
                 int c = getState();
+
+                // countDown调用次数超过所设置阈值，直接返回
                 if (c == 0)
                     return false;
+
                 int nextc = c - 1;
+
+                //如果设置不成功，继续循环，CAS自旋；否则返回，当nextc=0时，可以唤醒队列中的等待，否则还不能唤醒队列中的等待
                 if (compareAndSetState(c, nextc))
                     return nextc == 0;
             }
