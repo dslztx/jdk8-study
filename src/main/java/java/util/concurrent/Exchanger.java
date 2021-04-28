@@ -244,8 +244,15 @@ public class Exchanger<V> {
      * slot CASes, it would also be legal for the write to Node.match
      * in a release to be weaker than a full volatile write. However,
      * this is not done because it could allow further postponement of
-     * the write, delaying progress.表达的意思是：对slot的CAS操作足够保障内存可见性语义，match字段本就可以不需要由volatile
-     * 修饰，现在仍然用volatile修饰，是为了立即写回主存，避免延迟)
+     * the write, delaying progress.
+     * <br/>
+     * 这里想表达的意思是：对slot的CAS操作足够保障内存可见性语义，match字段本不需要是volatile的，
+     * 现在仍然用volatile修饰，只是为了立即写回主存，避免延迟
+     *
+     * 但是笔者觉得，还是需要volatile的，这里的描述应该是有误的，假设执行`exchange`方法配对的两个线程是T1和T2：
+     * T1通过CAS操作向槽中放置元素p，T2通过CAS操作从槽中读取元素p，基于CAS操作具有volatile变量内存语义后续可推导出T1调用`exchange`方法之前的操作 happens-before 于T2调用`exchange`方法之后的操作
+     * T2写入match字段值，T1读取match字段值，如果match字段不是volatile变量，后续怎么推导出T2调用`exchange`方法之前的操作 happens-before 于T1调用`exchange`方法之后的操作
+     * 
      */
 
     /**
