@@ -79,9 +79,16 @@ public class FutureTask<V> implements RunnableFuture<V> {
      * setException, and cancel.  During completion, state may take on
      * transient values of COMPLETING (while outcome is being set) or
      * INTERRUPTING (only while interrupting the runner to satisfy a
-     * cancel(true)). Transitions from these intermediate to final
+     * cancel(true)).
      * states use cheaper ordered/lazy writes because values are unique
      * and cannot be further modified.
+     *
+     *
+     * 在"set(V v)","setException(Throwable t)"和"cancel(boolean mayInterruptIfRunning)"这3个方法里使用UNSAFE.putOrderedInt()
+     * 方法更新state字段值，非常取巧。<br/>
+     *
+     * 我们知道使用UNSAFE.putOrderedInt()方法更新state字段的最大问题在于它的赋值对于其他线程并不立即可见，但是在本类中，即便会有这个不可见，也不影响结果的正确，<br/>
+     * 比如"set(V v)"中在调用putOrderedInt()方法前，必然是CAS设置的COMPLETING状态，此时isDone()方法的判断，跟putOrderedInt()方法设置的状态可不可见无关
      *
      * Possible state transitions:
      * NEW -> COMPLETING -> NORMAL
@@ -99,9 +106,13 @@ public class FutureTask<V> implements RunnableFuture<V> {
     private static final int INTERRUPTED  = 6;
 
     /** The underlying callable; nulled out after running */
+    //执行主体
     private Callable<V> callable;
+
+
     /** The result to return or exception to throw from get() */
     private Object outcome; // non-volatile, protected by state reads/writes
+
     /** The thread running the callable; CASed during run() */
     private volatile Thread runner;
     /** Treiber stack of waiting threads */
@@ -133,7 +144,7 @@ public class FutureTask<V> implements RunnableFuture<V> {
         if (callable == null)
             throw new NullPointerException();
         this.callable = callable;
-        this.state = NEW;       // ensure visibility of callable
+        this.state = NEW;       // ensure visibility of callable，基于happens-before关系
     }
 
     /**
@@ -150,7 +161,7 @@ public class FutureTask<V> implements RunnableFuture<V> {
      */
     public FutureTask(Runnable runnable, V result) {
         this.callable = Executors.callable(runnable, result);
-        this.state = NEW;       // ensure visibility of callable
+        this.state = NEW;       // ensure visibility of callable，基于happens-before关系
     }
 
     public boolean isCancelled() {
@@ -173,6 +184,7 @@ public class FutureTask<V> implements RunnableFuture<V> {
                     if (t != null)
                         t.interrupt();
                 } finally { // final state
+                    //上面有介绍，取巧的做法，不会影响结果
                     UNSAFE.putOrderedInt(this, stateOffset, INTERRUPTED);
                 }
             }
@@ -229,6 +241,8 @@ public class FutureTask<V> implements RunnableFuture<V> {
     protected void set(V v) {
         if (UNSAFE.compareAndSwapInt(this, stateOffset, NEW, COMPLETING)) {
             outcome = v;
+
+            //上面有介绍，取巧的做法，不会影响结果
             UNSAFE.putOrderedInt(this, stateOffset, NORMAL); // final state
             finishCompletion();
         }
@@ -247,6 +261,9 @@ public class FutureTask<V> implements RunnableFuture<V> {
     protected void setException(Throwable t) {
         if (UNSAFE.compareAndSwapInt(this, stateOffset, NEW, COMPLETING)) {
             outcome = t;
+
+
+            //上面有介绍，取巧的做法，不会影响结果
             UNSAFE.putOrderedInt(this, stateOffset, EXCEPTIONAL); // final state
             finishCompletion();
         }
@@ -275,7 +292,7 @@ public class FutureTask<V> implements RunnableFuture<V> {
             }
         } finally {
             // runner must be non-null until state is settled to
-            // prevent concurrent calls to run()
+            // prevent concurrent calls to run() 见最开始的判断语句
             runner = null;
             // state must be re-read after nulling runner to prevent
             // leaked interrupts
@@ -321,12 +338,14 @@ public class FutureTask<V> implements RunnableFuture<V> {
             if (s >= INTERRUPTING)
                 handlePossibleCancellationInterrupt(s);
         }
+
+        //只有成功执行，未抛出异常，才是一个合法的周期任务
         return ran && s == NEW;
     }
 
     /**
      * Ensures that any interrupt from a possible cancel(true) is only
-     * delivered to a task while in run or runAndReset.
+     * delivered to a task while in run or runAndReset（因为在这两个方法的开头才设置runner）.
      */
     private void handlePossibleCancellationInterrupt(int s) {
         // It is possible for our interrupter to stall before getting a
@@ -344,12 +363,16 @@ public class FutureTask<V> implements RunnableFuture<V> {
         // cancellation interrupt.
         //
         // Thread.interrupted();
+
+        // 就是有可能c.call()中有发出有用的中断信号，不能区分cancel()方法发出的还是c.call()发出的，故不能复位中断信号
     }
 
     /**
      * Simple linked list nodes to record waiting threads in a Treiber
      * stack.  See other classes such as Phaser and SynchronousQueue
      * for more detailed explanation.
+     *
+     * Treiber Stack在 R. Kent Treiber在1986年的论文Systems Programming: Coping with Parallelism中首次出现。它是一种无锁并发栈，其无锁的特性是基于CAS原子操作实现的。
      */
     static final class WaitNode {
         volatile Thread thread;
