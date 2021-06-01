@@ -181,6 +181,7 @@ public class ScheduledThreadPoolExecutor
             extends FutureTask<V> implements RunnableScheduledFuture<V> {
 
         /** Sequence number to break ties FIFO */
+        // 比较时间结果相同时，最后用该字段值得到一个比较结果
         private final long sequenceNumber;
 
         /** The time the task is enabled to execute in nanoTime units */
@@ -195,10 +196,12 @@ public class ScheduledThreadPoolExecutor
         private final long period;
 
         /** The actual task to be re-enqueued by reExecutePeriodic */
+        // 现在就是本身
         RunnableScheduledFuture<V> outerTask = this;
 
         /**
          * Index into delay queue, to support faster cancellation.
+         * 便于快速取消
          */
         int heapIndex;
 
@@ -232,15 +235,36 @@ public class ScheduledThreadPoolExecutor
             this.sequenceNumber = sequencer.getAndIncrement();
         }
 
+        /**
+         * 当前距离计划执行时间还有多少时间
+         */
         public long getDelay(TimeUnit unit) {
             return unit.convert(time - now(), NANOSECONDS);
         }
 
+        /**
+         *
+         * @param other
+         * @return
+         */
         public int compareTo(Delayed other) {
             if (other == this) // compare zero if same object
                 return 0;
+
             if (other instanceof ScheduledFutureTask) {
                 ScheduledFutureTask<?> x = (ScheduledFutureTask<?>)other;
+
+                //如果time-x.time计算溢出，很有可能不满足 sgn(x.compareTo(y)) == -sgn(y.compareTo(x)，此时compareTo实现是有问题的
+                //但是暂时应该不会出现这种情况，因为time值距离Long.MAX_VALUE的差距还很大
+
+                /*
+                int a=-1;
+        int b = Integer.MAX_VALUE;
+
+        System.out.println((a - b)<0);
+        System.out.println((b - a) < 0);
+                 */
+
                 long diff = time - x.time;
                 if (diff < 0)
                     return -1;
@@ -251,6 +275,9 @@ public class ScheduledThreadPoolExecutor
                 else
                     return 1;
             }
+
+            // 正常情况下不会执行到这里，因为sequenceNumber是唯一的
+            // 而且如果time=x.time的话，这里的diff也很可能是0结果值
             long diff = getDelay(NANOSECONDS) - other.getDelay(NANOSECONDS);
             return (diff < 0) ? -1 : (diff > 0) ? 1 : 0;
         }
@@ -268,6 +295,7 @@ public class ScheduledThreadPoolExecutor
          * Sets the next time to run for a periodic task.
          */
         private void setNextRunTime() {
+            // (Long.MAX_VALUE-time)差值很大，几乎不可能运算越界
             long p = period;
             if (p > 0)
                 time += p;
@@ -292,6 +320,9 @@ public class ScheduledThreadPoolExecutor
             else if (!periodic)
                 ScheduledFutureTask.super.run();
             else if (ScheduledFutureTask.super.runAndReset()) {
+                // 周期任务执行如果返回false，这个周期任务也不加回去了
+
+                //outerTask也不能指向别的任务，不然setNextRunTime()这个time值白设置了
                 setNextRunTime();
                 reExecutePeriodic(outerTask);
             }
@@ -495,8 +526,13 @@ public class ScheduledThreadPoolExecutor
 
     /**
      * Returns the trigger time of a delayed action.
+     *
+     * 也即计划执行时间
      */
     long triggerTime(long delay) {
+
+        // (Long.MAX_VALUE-time)差值很大，一般的delay不可能让其运算越界
+
         return now() +
             ((delay < (Long.MAX_VALUE >> 1)) ? delay : overflowFree(delay));
     }
@@ -504,11 +540,17 @@ public class ScheduledThreadPoolExecutor
     /**
      * Constrains the values of all delays in the queue to be within
      * Long.MAX_VALUE of each other, to avoid overflow in compareTo.
-     * This may occur if a task is eligible to be dequeued, but has
+     * This may occur if a task is eligible to be dequeued（此时它的delay小于0，这个例子中是headDelay小于0）, but has
      * not yet been, while some other task is added with a delay of
      * Long.MAX_VALUE.
+     *
+     // overflowFree(delay)这个分支针对的只是“workQueue队列头的任务delay即这里的headDelay<0，新增任务的delay非常大，然后新任务照理应该在队列头任务之后，运算越界导致其在前面”情形
+     * //这种情况不太会出现的
      */
     private long overflowFree(long delay) {
+        // now()+delay - (now()+headDelay)=delay-headDelay<0，导致新任务在队列头任务之前，运算越界导致的，本来应该是在其之后的
+        // 此时将delay重置为Long.MAX_VALUE + headDelay解决这个问题
+
         Delayed head = (Delayed) super.getQueue().peek();
         if (head != null) {
             long headDelay = head.getDelay(NANOSECONDS);
@@ -593,6 +635,8 @@ public class ScheduledThreadPoolExecutor
                                           triggerTime(initialDelay, unit),
                                           unit.toNanos(-delay));
         RunnableScheduledFuture<Void> t = decorateTask(command, sft);
+
+        // 现在的实现也只能是本身的，见ScheduledFutureTask方法的注释
         sft.outerTask = t;
         delayedExecute(t);
         return t;
@@ -757,6 +801,7 @@ public class ScheduledThreadPoolExecutor
      *
      * @throws SecurityException {@inheritDoc}
      */
+    @Override
     public void shutdown() {
         super.shutdown();
     }
@@ -795,6 +840,8 @@ public class ScheduledThreadPoolExecutor
      * <em>not</em> guaranteed to traverse tasks in the order in
      * which they will execute.
      *
+     * //因为是堆结构
+     *
      * @return the task queue
      */
     public BlockingQueue<Runnable> getQueue() {
@@ -802,7 +849,7 @@ public class ScheduledThreadPoolExecutor
     }
 
     /**
-     * Specialized delay queue. To mesh with TPE declarations, this
+     * Specialized delay queue. To mesh with TPE（ThreadPoolExecutor） declarations, this
      * class must be declared as a BlockingQueue<Runnable> even though
      * it can only hold RunnableScheduledFutures.
      */
@@ -815,13 +862,13 @@ public class ScheduledThreadPoolExecutor
          * every ScheduledFutureTask also records its index into the
          * heap array. This eliminates the need to find a task upon
          * cancellation, greatly speeding up removal (down from O(n)
-         * to O(log n)), and reducing garbage retention that would
+         * to O(log n)。本来是“找到O(n)+删除后调整O(log n)”，现在是“找到O(1)+删除后调整O(log n)”), and reducing garbage retention that would
          * otherwise occur by waiting for the element to rise to top
          * before clearing. But because the queue may also hold
          * RunnableScheduledFutures that are not ScheduledFutureTasks,
          * we are not guaranteed to have such indices available, in
          * which case we fall back to linear search. (We expect that
-         * most tasks will not be decorated, and that the faster cases
+         * most tasks will not be decorated（即decorateTask()方法返回默认值，不是其他值）, and that the faster cases
          * will be much more common.)
          *
          * All heap operations must record index changes -- mainly
@@ -833,8 +880,11 @@ public class ScheduledThreadPoolExecutor
          */
 
         private static final int INITIAL_CAPACITY = 16;
+        //在grow()方法里可以看到最大是Integer.MAX_VALUE
         private RunnableScheduledFuture<?>[] queue =
             new RunnableScheduledFuture<?>[INITIAL_CAPACITY];
+
+
         private final ReentrantLock lock = new ReentrantLock();
         private int size = 0;
 
@@ -853,6 +903,8 @@ public class ScheduledThreadPoolExecutor
          * thread, but not necessarily the current leader, is
          * signalled.  So waiting threads must be prepared to acquire
          * and lose leadership while waiting.
+         *
+         * //如果大家都无限等待，等到有个任务的计划执行时间到了，也没有唤醒机制，leader的设计就是为了解决这个问题
          */
         private Thread leader = null;
 
@@ -916,7 +968,7 @@ public class ScheduledThreadPoolExecutor
         private void grow() {
             int oldCapacity = queue.length;
             int newCapacity = oldCapacity + (oldCapacity >> 1); // grow 50%
-            if (newCapacity < 0) // overflow
+            if (newCapacity < 0) // overflow，溢出
                 newCapacity = Integer.MAX_VALUE;
             queue = Arrays.copyOf(queue, newCapacity);
         }
@@ -965,6 +1017,8 @@ public class ScheduledThreadPoolExecutor
                 queue[s] = null;
                 if (s != i) {
                     siftDown(i, replacement);
+
+                    //这个步骤其实是没有必要的
                     if (queue[i] == replacement)
                         siftUp(i, replacement);
                 }
@@ -988,6 +1042,10 @@ public class ScheduledThreadPoolExecutor
             return size() == 0;
         }
 
+        /**
+         * 定义无界队列（虽然表示限制是Integer.MAX_VALUE），所以还剩下无穷大空间
+         * @return
+         */
         public int remainingCapacity() {
             return Integer.MAX_VALUE;
         }
@@ -1019,6 +1077,7 @@ public class ScheduledThreadPoolExecutor
                 } else {
                     siftUp(i, e);
                 }
+
                 if (queue[0] == e) {
                     leader = null;
                     available.signal();
@@ -1037,6 +1096,14 @@ public class ScheduledThreadPoolExecutor
             return offer(e);
         }
 
+        /**
+         * 这个实现的跟接口声明不一致（超时时间），有点问题，不过是内部类，这样也没有关系的，因为知道不会用到这个方法
+         *
+         * @param e
+         * @param timeout
+         * @param unit
+         * @return
+         */
         public boolean offer(Runnable e, long timeout, TimeUnit unit) {
             return offer(e);
         }
@@ -1062,6 +1129,8 @@ public class ScheduledThreadPoolExecutor
             lock.lock();
             try {
                 RunnableScheduledFuture<?> first = queue[0];
+
+                //first.getDelay(NANOSECONDS) > 0 表示时间还没到，还不能执行
                 if (first == null || first.getDelay(NANOSECONDS) > 0)
                     return null;
                 else
@@ -1083,6 +1152,7 @@ public class ScheduledThreadPoolExecutor
                         long delay = first.getDelay(NANOSECONDS);
                         if (delay <= 0)
                             return finishPoll(first);
+
                         first = null; // don't retain ref while waiting
                         if (leader != null)
                             available.await();
@@ -1124,7 +1194,9 @@ public class ScheduledThreadPoolExecutor
                             return finishPoll(first);
                         if (nanos <= 0)
                             return null;
+
                         first = null; // don't retain ref while waiting
+
                         if (nanos < delay || leader != null)
                             nanos = available.awaitNanos(nanos);
                         else {
@@ -1167,6 +1239,8 @@ public class ScheduledThreadPoolExecutor
         /**
          * Returns first element only if it is expired.
          * Used only by drainTo.  Call only when holding lock.
+         *
+         * 队首任务的计划执行时间已经过期，即计划执行时间在“过去”
          */
         private RunnableScheduledFuture<?> peekExpired() {
             // assert lock.isHeldByCurrentThread();
@@ -1175,6 +1249,12 @@ public class ScheduledThreadPoolExecutor
                 null : first;
         }
 
+        /**
+         * 只保留提取计划执行时间已经过期的任务，就是计划执行时间在将来的任务没必要保留下来，直接丢弃
+         *
+         * @param c
+         * @return
+         */
         public int drainTo(Collection<? super Runnable> c) {
             if (c == null)
                 throw new NullPointerException();
