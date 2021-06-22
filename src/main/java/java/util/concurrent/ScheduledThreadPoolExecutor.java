@@ -161,6 +161,9 @@ public class ScheduledThreadPoolExecutor
 
     /**
      * True if ScheduledFutureTask.cancel should remove from queue
+     *
+     * TPE中一个FutureTask提前cancel后，也可能在workQueue中保留一段时间，直到被getTask()拿掉
+     * 一般不用管这个参数
      */
     private volatile boolean removeOnCancel = false;
 
@@ -181,7 +184,7 @@ public class ScheduledThreadPoolExecutor
             extends FutureTask<V> implements RunnableScheduledFuture<V> {
 
         /** Sequence number to break ties FIFO */
-        // 比较时间结果相同时，最后用该字段值得到一个比较结果
+        // 比较时间结果相同时，最后用该字段值得到一个比较结果，也就是先提交的优先级高
         private final long sequenceNumber;
 
         /** The time the task is enabled to execute in nanoTime units */
