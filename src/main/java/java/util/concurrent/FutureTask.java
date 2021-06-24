@@ -339,7 +339,7 @@ public class FutureTask<V> implements RunnableFuture<V> {
                 handlePossibleCancellationInterrupt(s);
         }
 
-        //只有成功执行，未抛出异常，才是一个合法的周期任务
+        //只有成功执行，未抛出异常，才是一个合法的周期性任务
         return ran && s == NEW;
     }
 
