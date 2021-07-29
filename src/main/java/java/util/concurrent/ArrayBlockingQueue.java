@@ -120,6 +120,8 @@ public class ArrayBlockingQueue<E> extends AbstractQueue<E>
      * Shared state for currently active iterators, or null if there
      * are known not to be any.  Allows queue operations to update
      * iterator state.
+     *
+     * //管理所有生成的迭代器实例，使能同步修改操作
      */
     transient Itrs itrs = null;
 
@@ -153,6 +155,7 @@ public class ArrayBlockingQueue<E> extends AbstractQueue<E>
     /**
      * Inserts element at current put position, advances, and signals.
      * Call only when holding lock.
+     *
      */
     private void enqueue(E x) {
         // assert lock.getHoldCount() == 1;
@@ -179,8 +182,11 @@ public class ArrayBlockingQueue<E> extends AbstractQueue<E>
         if (++takeIndex == items.length)
             takeIndex = 0;
         count--;
+
+        //更新所有迭代器
         if (itrs != null)
             itrs.elementDequeued();
+
         notFull.signal();
         return x;
     }
@@ -201,6 +207,8 @@ public class ArrayBlockingQueue<E> extends AbstractQueue<E>
             if (++takeIndex == items.length)
                 takeIndex = 0;
             count--;
+
+            //更新所有迭代器
             if (itrs != null)
                 itrs.elementDequeued();
         } else {
@@ -222,6 +230,8 @@ public class ArrayBlockingQueue<E> extends AbstractQueue<E>
                 }
             }
             count--;
+
+            //更新所有迭代器
             if (itrs != null)
                 itrs.removedAt(removeIndex);
         }
@@ -279,7 +289,9 @@ public class ArrayBlockingQueue<E> extends AbstractQueue<E>
         this(capacity, fair);
 
         final ReentrantLock lock = this.lock;
+
         lock.lock(); // Lock only for visibility, not mutual exclusion
+        //基于锁的happens-before规则，后续可见，但其实也是用了互斥的，比如“这段代码重排序到外面，跟后续的添加和删除需要进行互斥”
         try {
             int i = 0;
             try {
@@ -683,8 +695,12 @@ public class ArrayBlockingQueue<E> extends AbstractQueue<E>
                 } while (i != putIndex);
                 takeIndex = putIndex;
                 count = 0;
+
+
+                //更新所有迭代器
                 if (itrs != null)
                     itrs.queueIsEmpty();
+
                 for (; k > 0 && lock.hasWaiters(notFull); k--)
                     notFull.signal();
             }
@@ -739,8 +755,10 @@ public class ArrayBlockingQueue<E> extends AbstractQueue<E>
                     count -= i;
                     takeIndex = take;
                     if (itrs != null) {
+                        //更新所有迭代器
                         if (count == 0)
                             itrs.queueIsEmpty();
+                        //下标循环了一次
                         else if (i > take)
                             itrs.takeIndexWrapped();
                     }
@@ -761,6 +779,8 @@ public class ArrayBlockingQueue<E> extends AbstractQueue<E>
      * <a href="package-summary.html#Weakly"><i>weakly consistent</i></a>.
      *
      * @return an iterator over the elements in this queue in proper sequence
+     *
+     * //一般的BlockingQueue队列使用场景，不需要这个迭代器
      */
     public Iterator<E> iterator() {
         return new Itr();
@@ -831,6 +851,7 @@ public class ArrayBlockingQueue<E> extends AbstractQueue<E>
             }
         }
 
+        //每次下标循环一次就加1
         /** Incremented whenever takeIndex wraps around to 0 */
         int cycles = 0;
 
@@ -1009,6 +1030,7 @@ public class ArrayBlockingQueue<E> extends AbstractQueue<E>
      * To maintain weak consistency with respect to puts and takes, we
      * read ahead one slot, so as to not report hasNext true but then
      * not have an element to return.
+     * 迭代器的hasNext()为true，此时通过队列删除相应元素，迭代器的next()有值，是一个不一致
      *
      * We switch into "detached" mode (allowing prompt unlinking from
      * itrs without help from the GC) when all indices are negative, or
@@ -1020,6 +1042,8 @@ public class ArrayBlockingQueue<E> extends AbstractQueue<E>
      * expected element to remove, in lastItem.  Yes, we may fail to
      * remove lastItem from the queue if it moved due to an interleaved
      * interior remove while in detached mode.
+     *
+     * // 主要就是维护下标，这个下标维护工作需要考虑循环等情形
      */
     private class Itr implements Iterator<E> {
         /** Index to look for new nextItem; NONE at end */
@@ -1038,9 +1062,11 @@ public class ArrayBlockingQueue<E> extends AbstractQueue<E>
         private int lastRet;
 
         /** Previous value of takeIndex, or DETACHED when detached */
+        // 表示迭代器当前对应的取元素索引位置
         private int prevTakeIndex;
 
         /** Previous value of iters.cycles */
+        // 表示迭代器当前对应的取元素循环圈数位置
         private int prevCycles;
 
         /** Special index value indicating "not available" or "undefined" */
@@ -1119,6 +1145,9 @@ public class ArrayBlockingQueue<E> extends AbstractQueue<E>
         /**
          * Adjusts indices to incorporate all dequeues since the last
          * operation on this iterator.  Call only from iterating thread.
+         *
+         * 表示同步最新的出队列情况，如果元素A已经出队列，那么迭代器中需要相应的进行更新
+         * 如果要深入理解，仔细画下这个循环队列图
          */
         private void incorporateDequeues() {
             // assert lock.getHoldCount() == 1;
@@ -1139,10 +1168,13 @@ public class ArrayBlockingQueue<E> extends AbstractQueue<E>
                     + (takeIndex - prevTakeIndex);
 
                 // Check indices for invalidation
+                // lastRet虽然是上一个返回元素的索引位，但是在remove()方法用到，如果是非法了，也算非法
                 if (invalidated(lastRet, prevTakeIndex, dequeues, len))
                     lastRet = REMOVED;
                 if (invalidated(nextIndex, prevTakeIndex, dequeues, len))
                     nextIndex = REMOVED;
+
+                // cursor非法了，就用最新的takeIndex替代
                 if (invalidated(cursor, prevTakeIndex, dequeues, len))
                     cursor = takeIndex;
 
