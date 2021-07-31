@@ -116,12 +116,12 @@ public class PriorityBlockingQueue<E> extends AbstractQueue<E>
      * operations protected with a single lock. However, allocation
      * during resizing uses a simple spinlock (used only while not
      * holding main lock) in order to allow takes to operate
-     * concurrently with allocation.  This avoids repeated
+     * concurrently with allocation（见tryGrow()方法）.  This avoids repeated
      * postponement of waiting consumers and consequent element
-     * build-up. The need to back away from lock during allocation
+     * build-up（指的是被拿出最高优先级元素后堆的重构）. The need to back away from lock during allocation
      * makes it impossible to simply wrap delegated
      * java.util.PriorityQueue operations within a lock, as was done
-     * in a previous version of this class. To maintain
+     * in a previous version of this class（以前版本内部使用PriorityQueue，为优化扩容时的并发性能，只能这里直接维护堆结构并进行相应改造）. To maintain
      * interoperability, a plain PriorityQueue is still used during
      * serialization, which maintains compatibility at the expense of
      * transiently doubling overhead.
@@ -180,6 +180,8 @@ public class PriorityBlockingQueue<E> extends AbstractQueue<E>
      * A plain PriorityQueue used only for serialization,
      * to maintain compatibility with previous versions
      * of this class. Non-null only during serialization/deserialization.
+     *
+     * //只是为了跟以前的版本兼容
      */
     private PriorityQueue<E> q;
 
@@ -246,8 +248,9 @@ public class PriorityBlockingQueue<E> extends AbstractQueue<E>
     public PriorityBlockingQueue(Collection<? extends E> c) {
         this.lock = new ReentrantLock();
         this.notEmpty = lock.newCondition();
+
         boolean heapify = true; // true if not known to be in heap order
-        boolean screen = true;  // true if must screen for nulls
+        boolean screen = true;  // true if must screen for nulls，检测空值
         if (c instanceof SortedSet<?>) {
             SortedSet<? extends E> ss = (SortedSet<? extends E>) c;
             this.comparator = (Comparator<? super E>) ss.comparator();
@@ -258,7 +261,7 @@ public class PriorityBlockingQueue<E> extends AbstractQueue<E>
                 (PriorityBlockingQueue<? extends E>) c;
             this.comparator = (Comparator<? super E>) pq.comparator();
             screen = false;
-            if (pq.getClass() == PriorityBlockingQueue.class) // exact match
+            if (pq.getClass() == PriorityBlockingQueue.class) // exact match，已经按照堆顺序排好序了
                 heapify = false;
         }
         Object[] a = c.toArray();
@@ -267,12 +270,15 @@ public class PriorityBlockingQueue<E> extends AbstractQueue<E>
         if (a.getClass() != Object[].class)
             a = Arrays.copyOf(a, n, Object[].class);
         if (screen && (n == 1 || this.comparator != null)) {
+            //根据以上逻辑可知，如果c是SortedSet或者PriorityBlockingQueue，那么comparator != null显然成立，所以必须得检查下元素有没有为空的
             for (int i = 0; i < n; ++i)
                 if (a[i] == null)
                     throw new NullPointerException();
         }
         this.queue = a;
         this.size = n;
+
+        //堆化变形
         if (heapify)
             heapify();
     }
@@ -283,11 +289,20 @@ public class PriorityBlockingQueue<E> extends AbstractQueue<E>
      * on contention (which we expect to be rare). Call only while
      * holding lock.
      *
+     *
+     * 详见开头注释说明
+     *
      * @param array the heap array
      * @param oldCap the length of the array
      */
     private void tryGrow(Object[] array, int oldCap) {
+        // 直接先释放掉锁，可以在扩容的时候继续读取，优化并发性能
+        // 详见开头注释说明
         lock.unlock(); // must release and then re-acquire main lock
+
+
+        // 接下来进行扩容，基于对allocationSpinLock变量的CAS操作确保不重复扩容
+
         Object[] newArray = null;
         if (allocationSpinLock == 0 &&
             UNSAFE.compareAndSwapInt(this, allocationSpinLockOffset,
@@ -310,6 +325,7 @@ public class PriorityBlockingQueue<E> extends AbstractQueue<E>
         }
         if (newArray == null) // back off if another thread is allocating
             Thread.yield();
+
         lock.lock();
         if (newArray != null && queue == array) {
             queue = newArray;
@@ -355,6 +371,7 @@ public class PriorityBlockingQueue<E> extends AbstractQueue<E>
      * @param array the heap array
      */
     private static <T> void siftUpComparable(int k, T x, Object[] array) {
+        //如果不能转型怎么办？
         Comparable<? super T> key = (Comparable<? super T>) x;
         while (k > 0) {
             int parent = (k - 1) >>> 1;
@@ -434,6 +451,8 @@ public class PriorityBlockingQueue<E> extends AbstractQueue<E>
     /**
      * Establishes the heap invariant (described above) in the entire tree,
      * assuming nothing about the order of the elements prior to the call.
+     *
+     * 就是本来没有按照优先级顺序排列，这里重排列下
      */
     private void heapify() {
         Object[] array = queue;
@@ -633,10 +652,14 @@ public class PriorityBlockingQueue<E> extends AbstractQueue<E>
             E moved = (E) array[n];
             array[n] = null;
             Comparator<? super E> cmp = comparator;
+
+            //接下来分别是向下和向上调整
             if (cmp == null)
                 siftDownComparable(i, moved, array, n);
             else
                 siftDownUsingComparator(i, moved, array, n, cmp);
+
+
             if (array[i] == moved) {
                 if (cmp == null)
                     siftUpComparable(i, moved, array);
@@ -867,6 +890,8 @@ public class PriorityBlockingQueue<E> extends AbstractQueue<E>
      *
      * <p>The returned iterator is
      * <a href="package-summary.html#Weakly"><i>weakly consistent</i></a>.
+     *
+     * 弱一致性下包括快照实现
      *
      * @return an iterator over the elements in this queue
      */
