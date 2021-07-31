@@ -855,6 +855,8 @@ public class ScheduledThreadPoolExecutor
      * Specialized delay queue. To mesh with TPE（ThreadPoolExecutor） declarations, this
      * class must be declared as a BlockingQueue<Runnable> even though
      * it can only hold RunnableScheduledFutures.
+     *
+     * //跟DelayQueue实现非常相似，只不过这里直接维护堆数据结构，DelayQueue使用PriorityQueue，虽然其内部也是维护一个堆数据结构
      */
     static class DelayedWorkQueue extends AbstractQueue<Runnable>
         implements BlockingQueue<Runnable> {
@@ -1100,7 +1102,7 @@ public class ScheduledThreadPoolExecutor
         }
 
         /**
-         * 这个实现的跟接口声明不一致（超时时间），有点问题，不过是内部类，这样也没有关系的，因为知道不会用到这个方法
+         * 这个实现没有考虑超时时间设置，并非跟接口声明不一致，而是设计无界，所以无需等待，故不需要考虑超时时间设置
          *
          * @param e
          * @param timeout
