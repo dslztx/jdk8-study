@@ -291,7 +291,10 @@ public class ArrayBlockingQueue<E> extends AbstractQueue<E>
         final ReentrantLock lock = this.lock;
 
         lock.lock(); // Lock only for visibility, not mutual exclusion
-        //基于锁的happens-before规则，后续可见，但其实也是用了互斥的，比如“这段代码重排序到外面，跟后续的添加和删除需要进行互斥”
+        //为了可见性：基于锁的happens-before规则，后续可见；
+        // 不为了互斥：本来笔者认为有一种情形，会需要互斥，即“这段锁代码片段重排序到返回实例对象之后，然后在返回的实例对象上调用add/put/offer方法”，但是lock.unlock()
+        // 有volatile读写语义，根据所添加的内存屏障，这段锁代码片段不可能重排序到后续的ArrayBlockingQueue c=new ArrayBlockingQueue() Load操作之后
+
         try {
             int i = 0;
             try {
