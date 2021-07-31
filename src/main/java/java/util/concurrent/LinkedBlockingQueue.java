@@ -82,11 +82,11 @@ public class LinkedBlockingQueue<E> extends AbstractQueue<E>
     private static final long serialVersionUID = -6903933977591709194L;
 
     /*
-     * A variant of the "two lock queue" algorithm.  The putLock gates
+     * A variant of the "two lock queue" algorithm（有两个锁）.  The putLock gates
      * entry to put (and offer), and has an associated condition for
      * waiting puts.  Similarly for the takeLock.  The "count" field
      * that they both rely on is maintained as an atomic to avoid
-     * needing to get both locks in most cases. Also, to minimize need
+     * needing to get both locks in most cases（否则，读和写用了不同锁，没有可见性机制，借助于count有了一个可见性机制）. Also, to minimize need
      * for puts to get takeLock and vice-versa, cascading notifies are
      * used. When a put notices that it has enabled at least one take,
      * it signals taker. That taker in turn signals others if more
@@ -100,7 +100,7 @@ public class LinkedBlockingQueue<E> extends AbstractQueue<E>
      * count updated.  A subsequent reader guarantees visibility to the
      * enqueued Node by either acquiring the putLock (via fullyLock)
      * or by acquiring the takeLock, and then reading n = count.get();
-     * this gives visibility to the first n items.
+     * this gives visibility to the first n items（就是通过全量锁或者count实现可见性）.
      *
      * To implement weakly consistent iterators, it appears we need to
      * keep all Nodes GC-reachable from a predecessor dequeued Node.
@@ -142,12 +142,17 @@ public class LinkedBlockingQueue<E> extends AbstractQueue<E>
     /**
      * Head of linked list.
      * Invariant: head.item == null
+     *
+     * head是一个虚节点，正因如此，提取和插入元素才可以使用互相独立的两个锁takeLock和putLock
      */
     transient Node<E> head;
 
     /**
+     *
      * Tail of linked list.
      * Invariant: last.next == null
+     *
+     * last不是一个虚节点
      */
     private transient Node<E> last;
 
@@ -277,6 +282,9 @@ public class LinkedBlockingQueue<E> extends AbstractQueue<E>
         this(Integer.MAX_VALUE);
         final ReentrantLock putLock = this.putLock;
         putLock.lock(); // Never contended, but necessary for visibility
+        //为了可见性：基于锁的happens-before规则，后续可见；
+        // 不为了互斥：本来笔者认为有一种情形，会需要互斥，即“这段锁代码片段重排序到返回实例对象之后，然后在返回的实例对象上调用add/put/offer方法”，但是putLock.unlock()
+        // 有volatile读写语义，根据所添加的内存屏障，这段锁代码片段不可能重排序到后续的LinkedBlockingQueue c=new LinkedBlockingQueue() Load操作之后
         try {
             int n = 0;
             for (E e : c) {
@@ -350,12 +358,17 @@ public class LinkedBlockingQueue<E> extends AbstractQueue<E>
                 notFull.await();
             }
             enqueue(node);
+
+            //如果再增加1个是合法的话，直接再通过notFull.signal()唤醒另外一个插入元素阻塞线程
+            //级联插入的思想，本次插入成功了，很可能下次插入成功，否则就要等待提取掉元素，快速使得插入元素能够成功
             c = count.getAndIncrement();
             if (c + 1 < capacity)
                 notFull.signal();
         } finally {
             putLock.unlock();
         }
+
+        //c==0，实际上表示有1个元素在了，因为上面是getAndIncrement()
         if (c == 0)
             signalNotEmpty();
     }
@@ -385,6 +398,9 @@ public class LinkedBlockingQueue<E> extends AbstractQueue<E>
                 nanos = notFull.awaitNanos(nanos);
             }
             enqueue(new Node<E>(e));
+
+
+            //如果再增加1个是合法的话，直接再通过notFull.signal()唤醒另外一个插入元素阻塞线程
             c = count.getAndIncrement();
             if (c + 1 < capacity)
                 notFull.signal();
@@ -419,6 +435,8 @@ public class LinkedBlockingQueue<E> extends AbstractQueue<E>
         try {
             if (count.get() < capacity) {
                 enqueue(node);
+
+                //如果再增加1个是合法的话，直接再通过notFull.signal()唤醒另外一个插入元素阻塞线程
                 c = count.getAndIncrement();
                 if (c + 1 < capacity)
                     notFull.signal();
@@ -442,12 +460,17 @@ public class LinkedBlockingQueue<E> extends AbstractQueue<E>
                 notEmpty.await();
             }
             x = dequeue();
+
+
+            //如果再减小1个是合法的话，直接再通过notEmpty.signal()唤醒另外一个提取元素阻塞线程
             c = count.getAndDecrement();
             if (c > 1)
                 notEmpty.signal();
         } finally {
             takeLock.unlock();
         }
+
+        //c=capacity，表示实际上为capacity-1，上面是getAndDecrement()
         if (c == capacity)
             signalNotFull();
         return x;
@@ -522,8 +545,10 @@ public class LinkedBlockingQueue<E> extends AbstractQueue<E>
      */
     void unlink(Node<E> p, Node<E> trail) {
         // assert isFullyLocked();
-        // p.next is not changed, to allow iterators that are
+        // p.next is not changed（否则从p就遍历不下去了）, to allow iterators that are
         // traversing p to maintain their weak-consistency guarantee.
+
+        // 虽然p.next不变，但它的内容为空了
         p.item = null;
         trail.next = p.next;
         if (last == p)
