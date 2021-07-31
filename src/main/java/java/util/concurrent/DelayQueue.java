@@ -520,7 +520,8 @@ public class DelayQueue<E extends Delayed> extends AbstractQueue<E>
      *
      * <p>The returned iterator is
      * <a href="package-summary.html#Weakly"><i>weakly consistent</i></a>.
-     * 描述错误，不是弱一致性，是快照，除非认为这个弱一致性是广义的弱一致性
+     *
+     * 弱一致性下包括快照实现
      *
      * @return an iterator over the elements in this queue
      */
