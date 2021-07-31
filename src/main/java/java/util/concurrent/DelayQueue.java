@@ -88,6 +88,9 @@ public class DelayQueue<E extends Delayed> extends AbstractQueue<E>
      * waiting thread, but not necessarily the current leader, is
      * signalled.  So waiting threads must be prepared to acquire
      * and lose leadership while waiting.
+     *
+     * //如果大家都无限等待，等到有个元素可取了也没有唤醒机制，leader的设计就是为了解决这个问题
+     * 参见DelayedWorkQueue
      */
     private Thread leader = null;
 
@@ -112,6 +115,7 @@ public class DelayQueue<E extends Delayed> extends AbstractQueue<E>
      *         of its elements are null
      */
     public DelayQueue(Collection<? extends E> c) {
+        //为什么不像ArrayBlockingQueue和LinkedBlockingQueue锁一次就好呢，不断加锁和释放锁效率不高
         this.addAll(c);
     }
 
@@ -292,6 +296,8 @@ public class DelayQueue<E extends Delayed> extends AbstractQueue<E>
      * {@code poll}, if no expired elements are available in the queue,
      * this method returns the element that will expire next,
      * if one exists.
+     *
+     * //就是返回的元素可能是未到期的
      *
      * @return the head of this queue, or {@code null} if this
      *         queue is empty
@@ -514,6 +520,7 @@ public class DelayQueue<E extends Delayed> extends AbstractQueue<E>
      *
      * <p>The returned iterator is
      * <a href="package-summary.html#Weakly"><i>weakly consistent</i></a>.
+     * 描述错误，不是弱一致性，是快照，除非认为这个弱一致性是广义的弱一致性
      *
      * @return an iterator over the elements in this queue
      */
