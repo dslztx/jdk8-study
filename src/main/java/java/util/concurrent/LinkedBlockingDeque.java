@@ -56,7 +56,7 @@ import java.util.function.Consumer;
  * deque above capacity.
  *
  * <p>Most operations run in constant time (ignoring time spent
- * blocking).  Exceptions include {@link #remove(Object) remove},
+ * blocking).  Exceptions include {@link #remove(Object) remove}(是remove(Object o)，而不是remove()),
  * {@link #removeFirstOccurrence removeFirstOccurrence}, {@link
  * #removeLastOccurrence removeLastOccurrence}, {@link #contains
  * contains}, {@link #iterator iterator.remove()}, and the bulk
@@ -138,6 +138,8 @@ public class LinkedBlockingDeque<E>
      * Pointer to first node.
      * Invariant: (first == null && last == null) ||
      *            (first.prev == null && first.item != null)
+     *
+     *  不指向虚节点，指向实节点
      */
     transient Node<E> first;
 
@@ -145,6 +147,8 @@ public class LinkedBlockingDeque<E>
      * Pointer to last node.
      * Invariant: (first == null && last == null) ||
      *            (last.next == null && last.item != null)
+     *
+     *  不指向虚节点，指向实节点
      */
     transient Node<E> last;
 
