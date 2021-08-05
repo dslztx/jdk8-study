@@ -66,7 +66,7 @@ import java.util.Spliterators;
  *
  * <p>This class supports an optional fairness policy for ordering
  * waiting producer and consumer threads.  By default, this ordering
- * is not guaranteed. However, a queue constructed with fairness set
+ * is not guaranteed（使用TransferStack的确是没有明确顺序的，可见TransferStack JavaDoc）. However, a queue constructed with fairness set
  * to {@code true} grants threads access in FIFO order.
  *
  * <p>This class and its iterator implement all of the
@@ -93,10 +93,15 @@ public class SynchronousQueue<E> extends AbstractQueue<E>
      * Oct. 2004 (see also
      * http://www.cs.rochester.edu/u/scott/synchronization/pseudocode/duals.html).
      * The (Lifo) stack is used for non-fair mode, and the (Fifo)
-     * queue for fair mode. The performance of the two is generally
+     * queue for fair mode（Lifo对应TransferStack，Fifo对应TransferQueue）. The performance of the two is generally
      * similar. Fifo usually supports higher throughput under
      * contention but Lifo maintains higher thread locality in common
      * applications.
+     *
+     * ReentrantLock的非公平实现吞吐量是大于公平实现的，但是不是说就是非公平实现吞吐量就大于公平实现的，看具体实现
+     * TransferQueue（公平）的吞吐量大于TransferStack（非公平）基于两点：
+     * 1、前者，尝试与队列节点匹配的操作不用以节点的形式加入队列；后者，尝试与队列节点匹配的操作需要以节点形式加入队列
+     * 2、后者如果队列头两个节点正在匹配，需要等他们完成，才能插入新节点
      *
      * A dual queue (and similarly stack) is one that at any given
      * time either holds "data" -- items provided by put operations,
@@ -208,6 +213,8 @@ public class SynchronousQueue<E> extends AbstractQueue<E>
     static final long spinForTimeoutThreshold = 1000L;
 
     /** Dual stack */
+    // 使用TransferStack的确是没有固定顺序的，比如"PUT-A PUT-B GET（正好跟PUT-B匹配） PUT-C GET（正好跟PUT-C匹配）
+    // GET（正好跟PUT-A匹配）"，PUT-B，PUT-C，PUT-A依次被匹配掉
     static final class TransferStack<E> extends Transferer<E> {
         /*
          * This extends Scherer-Scott dual stack algorithm, differing,
@@ -331,7 +338,7 @@ public class SynchronousQueue<E> extends AbstractQueue<E>
              *
              * 1. If apparently empty or already containing nodes of same
              *    mode, try to push node on stack and wait for a match,
-             *    returning it, or null if cancelled.
+             *    returning it, or null if cancelled. 如果是空队列，或者头元素相同请求类型，则要么立即返回，要么新加一个队列头节点，并挂起等待
              *
              * 2. If apparently containing node of complementary mode,
              *    try to push a fulfilling node on to stack, match
@@ -339,12 +346,13 @@ public class SynchronousQueue<E> extends AbstractQueue<E>
              *    stack, and return matched item. The matching or
              *    unlinking might not actually be necessary because of
              *    other threads performing action 3:
+             * 如果请求类型与队列头节点请求类型互补，则尝试新加入一个匹配节点，然后进行匹配，如果匹配成功，则将队列头的两个节点都pop掉。第3种情况其实针对的就是队列头两个节点正在匹配的情况
              *
              * 3. If top of stack already holds another fulfilling node,
              *    help it out by doing its match and/or pop
              *    operations, and then continue. The code for helping
              *    is essentially the same as for fulfilling, except
-             *    that it doesn't return the item.
+             *    that it doesn't return the item.  队列头两个节点正在匹配中，则等他完成匹配后再进行新一轮判断
              */
 
             SNode s = null; // constructed/reused as needed
@@ -529,7 +537,7 @@ public class SynchronousQueue<E> extends AbstractQueue<E>
          * among other ways, by using modes within nodes rather than
          * marked pointers. The algorithm is a little simpler than
          * that for stacks because fulfillers do not need explicit
-         * nodes, and matching is done by CAS'ing QNode.item field
+         * nodes（就是待匹配的操作不用以节点形式加进去队列）, and matching is done by CAS'ing QNode.item field
          * from non-null to null (for put) or vice versa (for take).
          */
 
@@ -557,12 +565,15 @@ public class SynchronousQueue<E> extends AbstractQueue<E>
 
             /**
              * Tries to cancel by CAS'ing ref to this as item.
+             *
+             * 将item设置成自身，表示cancel
              */
             void tryCancel(Object cmp) {
                 UNSAFE.compareAndSwapObject(this, itemOffset, cmp, this);
             }
 
             boolean isCancelled() {
+                //参见tryCancel方法
                 return item == this;
             }
 
@@ -594,7 +605,7 @@ public class SynchronousQueue<E> extends AbstractQueue<E>
             }
         }
 
-        /** Head of queue */
+        /** Head of queue,指向一个虚节点 */
         transient volatile QNode head;
         /** Tail of queue */
         transient volatile QNode tail;
@@ -606,7 +617,7 @@ public class SynchronousQueue<E> extends AbstractQueue<E>
         transient volatile QNode cleanMe;
 
         TransferQueue() {
-            QNode h = new QNode(null, false); // initialize to dummy node.
+            QNode h = new QNode(null, false); // initialize to dummy node.就是虚节点
             head = h;
             tail = h;
         }
@@ -662,9 +673,10 @@ public class SynchronousQueue<E> extends AbstractQueue<E>
              * seeing uninitialized head or tail values. This never
              * happens in current SynchronousQueue, but could if
              * callers held non-volatile/final ref to the
-             * transferer. The check is here anyway because it places
+             * transferer（可见性问题，构造方法内部语句可以重排序到外面，使用final和volatile可予以解决）. The check is here anyway because it
+             * places
              * null checks at top of loop, which is usually faster
-             * than having them implicitly interspersed.
+             * than having them implicitly interspersed（在开头只要做一次，否则后续需要在多个地方做）.
              */
 
             QNode s = null; // constructed/reused as needed
@@ -674,24 +686,32 @@ public class SynchronousQueue<E> extends AbstractQueue<E>
                 QNode t = tail;
                 QNode h = head;
                 if (t == null || h == null)         // saw uninitialized value
-                    continue;                       // spin
+                    continue;                       // spin（自旋）
 
                 if (h == t || t.isData == isData) { // empty or same-mode
                     QNode tn = t.next;
+
+                    //并发很激烈情形下，极易发生
                     if (t != tail)                  // inconsistent read
                         continue;
+
+                    //并发很激烈情形下，极易发生
                     if (tn != null) {               // lagging tail
                         advanceTail(t, tn);
                         continue;
                     }
+
                     if (timed && nanos <= 0)        // can't wait
                         return null;
+
                     if (s == null)
                         s = new QNode(e, isData);
                     if (!t.casNext(null, s))        // failed to link in
                         continue;
 
                     advanceTail(t, s);              // swing tail and wait
+
+                    //以上表示成功加入队列
                     Object x = awaitFulfill(s, e, timed, nanos);
                     if (x == s) {                   // wait was cancelled
                         clean(t, s);
@@ -739,11 +759,14 @@ public class SynchronousQueue<E> extends AbstractQueue<E>
             /* Same idea as TransferStack.awaitFulfill */
             final long deadline = timed ? System.nanoTime() + nanos : 0L;
             Thread w = Thread.currentThread();
+
+            //spins表示不直接挂起，而是走几个循环判断
             int spins = ((head.next == s) ?
                          (timed ? maxTimedSpins : maxUntimedSpins) : 0);
             for (;;) {
                 if (w.isInterrupted())
                     s.tryCancel(e);
+
                 Object x = s.item;
                 if (x != e)
                     return x;
@@ -845,6 +868,8 @@ public class SynchronousQueue<E> extends AbstractQueue<E>
      * this is accessed only at most once per public method, there
      * isn't a noticeable performance penalty for using volatile
      * instead of final here.
+     *
+     * 顺便可以知道，final的性能比volatile好，因为volatile的可见性语义比final的强多了
      */
     private transient volatile Transferer<E> transferer;
 
