@@ -53,6 +53,7 @@ import java.util.function.Consumer;
  * element that has been on the queue the longest time for some
  * producer.  The <em>tail</em> of the queue is that element that has
  * been on the queue the shortest time for some producer.
+ * 一般情况下，节点代表生产者，其实也可以代表消费者的，所以以上描述有点问题，可以通过实验程序证明，比如一开始就是一个take()方法调用
  *
  * <p>Beware that, unlike in most collections, the {@code size} method
  * is <em>NOT</em> a constant-time operation. Because of the
@@ -469,6 +470,7 @@ public class LinkedTransferQueue<E> extends AbstractQueue<E>
          * only be seen after publication via casNext.
          */
         Node(Object item, boolean isData) {
+            //不必要putObjectVolatile
             UNSAFE.putObject(this, itemOffset, item); // relaxed write
             this.isData = isData;
         }
@@ -637,6 +639,7 @@ public class LinkedTransferQueue<E> extends AbstractQueue<E>
                 p = (p != n) ? n : (h = head); // Use head if p offlist
             }
 
+            //前面没有匹配上，尝试加入一个节点
             if (how != NOW) {                 // No matches available
                 if (s == null)
                     s = new Node(e, haveData);
@@ -712,6 +715,7 @@ public class LinkedTransferQueue<E> extends AbstractQueue<E>
             }
             if ((w.isInterrupted() || (timed && nanos <= 0)) &&
                     s.casItem(e, s)) {        // cancel
+                //时间到了还没取到
                 unsplice(pred, s);
                 return e;
             }
