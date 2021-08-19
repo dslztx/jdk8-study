@@ -98,6 +98,8 @@ public class SynchronousQueue<E> extends AbstractQueue<E>
      * contention but Lifo maintains higher thread locality in common
      * applications.
      *
+     * Lifo：后进先出；Fifo：先进先出
+
      * ReentrantLock的非公平实现吞吐量是大于公平实现的，但是不是说就是非公平实现吞吐量就大于公平实现的，看具体实现
      * TransferQueue（公平）的吞吐量大于TransferStack（非公平）基于两点：
      * 1、前者，尝试与队列节点匹配的操作不用以节点的形式加入队列；后者，尝试与队列节点匹配的操作需要以节点形式加入队列
@@ -213,7 +215,8 @@ public class SynchronousQueue<E> extends AbstractQueue<E>
     static final long spinForTimeoutThreshold = 1000L;
 
     /** Dual stack */
-    // 使用TransferStack的确是没有固定顺序的，比如"PUT-A PUT-B GET（正好跟PUT-B匹配） PUT-C GET（正好跟PUT-C匹配）
+    // 节点操作顺序是Lifo的
+    // 但是匹配顺序是不定的：使用TransferStack的确是没有固定顺序的，比如"PUT-A PUT-B GET（正好跟PUT-B匹配） PUT-C GET（正好跟PUT-C匹配）
     // GET（正好跟PUT-A匹配）"，PUT-B，PUT-C，PUT-A依次被匹配掉
     static final class TransferStack<E> extends Transferer<E> {
         /*
@@ -531,6 +534,8 @@ public class SynchronousQueue<E> extends AbstractQueue<E>
     }
 
     /** Dual Queue */
+    // 节点操作顺序是Fifo的
+    // 匹配顺序也是Fifo的
     static final class TransferQueue<E> extends Transferer<E> {
         /*
          * This extends Scherer-Scott dual queue algorithm, differing,
