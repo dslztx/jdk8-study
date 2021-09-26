@@ -417,6 +417,7 @@ public class CopyOnWriteArrayList<E>
                 setArray(newElements);
             } else {
                 // Not quite a no-op; ensures volatile write semantics
+                // 并非一个无用的空操作，解决可见性问题
                 setArray(elements);
             }
             return oldValue;
@@ -613,6 +614,8 @@ public class CopyOnWriteArrayList<E>
         Object[] snapshot = getArray();
         return indexOf(e, snapshot, 0, snapshot.length) >= 0 ? false :
             addIfAbsent(e, snapshot);
+
+        //以上是可能存在线程安全问题，但是在addIfAbsent中又进行了这个可能的排除
     }
 
     /**
