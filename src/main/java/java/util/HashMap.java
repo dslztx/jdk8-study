@@ -547,6 +547,7 @@ public class HashMap<K, V> extends AbstractMap<K, V> implements Map<K, V>, Clone
                 }
             }
             if (e != null) { // existing mapping for key
+                // e!=null，表示本来就存在，所以直接返回，没有后续的//5之后的操作
                 V oldValue = e.value;
                 if (!onlyIfAbsent || oldValue == null)
                     e.value = value;
@@ -554,6 +555,9 @@ public class HashMap<K, V> extends AbstractMap<K, V> implements Map<K, V>, Clone
                 return oldValue;
             }
         }
+
+        // 5
+
         ++modCount;
         if (++size > threshold)
             resize();
@@ -593,16 +597,19 @@ public class HashMap<K, V> extends AbstractMap<K, V> implements Map<K, V>, Clone
         @SuppressWarnings({"rawtypes", "unchecked"})
         Node<K, V>[] newTab = (Node<K, V>[])new Node[newCap];
         table = newTab;
+
         if (oldTab != null) {
+            // 需要复制元素
             for (int j = 0; j < oldCap; ++j) {
                 Node<K, V> e;
                 if ((e = oldTab[j]) != null) {
                     oldTab[j] = null;
                     if (e.next == null)
                         newTab[e.hash & (newCap - 1)] = e;
-                    else if (e instanceof TreeNode)
+                    else if (e instanceof TreeNode) {
+                        // 是需要split，有些hash现在移位了
                         ((TreeNode<K, V>)e).split(this, newTab, j, oldCap);
-                    else { // preserve order
+                    } else { // preserve order
                         Node<K, V> loHead = null, loTail = null;
                         Node<K, V> hiHead = null, hiTail = null;
                         Node<K, V> next;
@@ -622,12 +629,14 @@ public class HashMap<K, V> extends AbstractMap<K, V> implements Map<K, V>, Clone
                                 hiTail = e;
                             }
                         } while ((e = next) != null);
+
                         if (loTail != null) {
                             loTail.next = null;
                             newTab[j] = loHead;
                         }
                         if (hiTail != null) {
                             hiTail.next = null;
+                            // 本来是1111 &，现在是11111 &，所以是两倍，高位就行
                             newTab[j + oldCap] = hiHead;
                         }
                     }
