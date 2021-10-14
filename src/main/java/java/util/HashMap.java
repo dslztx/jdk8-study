@@ -703,7 +703,7 @@ public class HashMap<K, V> extends AbstractMap<K, V> implements Map<K, V>, Clone
      * @param key the key
      * @param value the value to match if matchValue, else ignored
      * @param matchValue if true only remove if value is equal
-     * @param movable if false do not move other nodes while removing
+     * @param movable if false do not move other nodes while removing，只是用于红黑树
      * @return the node, or null if none
      */
     final Node<K, V> removeNode(int hash, Object key, Object value, boolean matchValue, boolean movable) {
@@ -1090,6 +1090,7 @@ public class HashMap<K, V> extends AbstractMap<K, V> implements Map<K, V>, Clone
 
     /**
      * Returns a shallow copy of this <tt>HashMap</tt> instance: the keys and values themselves are not cloned.
+     * 只是复制了引用，所以是浅复制
      *
      * @return a shallow copy of this map
      */
