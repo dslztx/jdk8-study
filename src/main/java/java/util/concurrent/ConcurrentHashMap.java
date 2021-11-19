@@ -892,7 +892,7 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
                 if (casTabAt(tab, i, null, new Node<K, V>(hash, key, value, null)))
                     break; // no lock when adding to empty bin
             } else if ((fh = f.hash) == MOVED)
-                tab = helpTransfer(tab, f);
+                tab = helpTransfer(tab, f);   //正处于扩容状态，帮助并发扩容，// 如果对应槽位不为空，且他的 hash 值是 -1，说明正在扩容，那么就帮助其扩容。以加快速度
             else {
                 V oldVal = null;
                 synchronized (f) {
@@ -926,7 +926,7 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
                 }
                 if (binCount != 0) {
                     if (binCount >= TREEIFY_THRESHOLD)
-                        treeifyBin(tab, i);
+                        treeifyBin(tab, i);  //长碰撞链转换为红黑树
                     if (oldVal != null)
                         return oldVal;
                     break;
@@ -1953,6 +1953,7 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
             while (s >= (long)(sc = sizeCtl) && (tab = table) != null && (n = tab.length) < MAXIMUM_CAPACITY) {
                 int rs = resizeStamp(n);
                 if (sc < 0) {
+                    // 这里有个bug，见helpTransfer方法
                     if ((sc >>> RESIZE_STAMP_SHIFT) != rs || sc == rs + 1 || sc == rs + MAX_RESIZERS
                         || (nt = nextTable) == null || transferIndex <= 0)
                         break;
@@ -1975,9 +1976,32 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
         int sc;
         if (tab != null && (f instanceof ForwardingNode) && (nextTab = ((ForwardingNode<K, V>)f).nextTable) != null) {
             int rs = resizeStamp(tab.length);
+
+            // 如果 nextTab 没有被并发修改 且 tab 也没有被并发修改
+            // 且 sizeCtl  < 0 （说明还在扩容）
             while (nextTab == nextTable && table == tab && (sc = sizeCtl) < 0) {
-                if ((sc >>> RESIZE_STAMP_SHIFT) != rs || sc == rs + 1 || sc == rs + MAX_RESIZERS || transferIndex <= 0)
+
+                // 如果 sizeCtl 无符号右移  16 不等于 rs （ sc前 16 位如果不等于标识符，则标识符变化了）
+                // 或者 sizeCtl == rs + 1  （扩容结束了，不再有线程进行扩容）（默认第一个线程设置 sc ==rs 左移 16 位 + 2，当第一个线程结束扩容了，就会将 sc 减一。这个时候，sc 就等于 rs + 1）
+                // 或者 sizeCtl == rs + 65535  （如果达到最大帮助线程的数量，即 65535）
+                // 或者转移下标正在调整 （扩容结束）
+                // 结束循环，返回 table
+
+                //这里的实现有个bug，https://stackoverflow.com/questions/53493706/how-the-conditions-sc-rs-1-sc-rs-max-resizers-can-be-achieved-in
+                //应该是sc == rs << RESIZE_STAMP_SHIFT +1
+
+                //下面已经纠正过来了
+
+                // 如果 sizeCtl 无符号右移  16 不等于 rs （ sc前 16 位如果不等于标识符，则标识符变化了）
+                // 第2个条件表示，扩容完成
+                // 第3个条件表示，最多允许(65535-1)=65534个线程同时进行扩容
+                // 或者转移下标正在调整 （扩容结束）
+                // 结束循环，返回 table
+
+                if ((sc >>> RESIZE_STAMP_SHIFT) != rs || sc == (rs<<RESIZE_STAMP_SHIFT) + 1 || sc == (rs<<RESIZE_STAMP_SHIFT) + MAX_RESIZERS || transferIndex <= 0)
                     break;
+
+                // 如果以上都不是, 将 sizeCtl + 1, （表示增加了一个线程帮助其扩容）
                 if (U.compareAndSwapInt(this, SIZECTL, sc, sc + 1)) {
                     transfer(tab, nextTab);
                     break;
@@ -2019,6 +2043,7 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
                 int rs = resizeStamp(n);
                 if (sc < 0) {
                     Node<K, V>[] nt;
+                    //这里有个bug，见helpTransfer方法
                     if ((sc >>> RESIZE_STAMP_SHIFT) != rs || sc == rs + 1 || sc == rs + MAX_RESIZERS
                         || (nt = nextTable) == null || transferIndex <= 0)
                         break;
@@ -2049,6 +2074,8 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
                 return;
             }
             nextTable = nextTab;
+
+            //用于分割不同的扩容区间
             transferIndex = n;
         }
         int nextn = nextTab.length;
@@ -2095,7 +2122,7 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
                     if (tabAt(tab, i) == f) {
                         Node<K, V> ln, hn;
                         if (fh >= 0) {
-                            int runBit = fh & n;
+                            int runBit = fh & n; //rehash时，由于是2倍扩容，只需要看hash & oldCap位置的值
                             Node<K, V> lastRun = f;
                             for (Node<K, V> p = f.next; p != null; p = p.next) {
                                 int b = p.hash & n;

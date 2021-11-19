@@ -538,7 +538,7 @@ public class HashMap<K, V> extends AbstractMap<K, V> implements Map<K, V>, Clone
                     if ((e = p.next) == null) {
                         p.next = newNode(hash, key, value, null);
                         if (binCount >= TREEIFY_THRESHOLD - 1) // -1 for 1st
-                            treeifyBin(tab, hash);
+                            treeifyBin(tab, hash);   //长碰撞链转换为红黑树
                         break;
                     }
                     if (e.hash == hash && ((k = e.key) == key || (key != null && key.equals(k))))
@@ -615,6 +615,8 @@ public class HashMap<K, V> extends AbstractMap<K, V> implements Map<K, V>, Clone
                         Node<K, V> next;
                         do {
                             next = e.next;
+
+                            //rehash时，由于是2倍扩容，只需要看hash & oldCap位置的值
                             if ((e.hash & oldCap) == 0) {
                                 if (loTail == null)
                                     loHead = e;
