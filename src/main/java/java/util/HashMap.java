@@ -71,7 +71,7 @@ import sun.misc.SharedSecrets;
  * allow the mappings to be stored more efficiently than letting it perform automatic rehashing as needed to grow the
  * table. Note that using many keys with the same {@code hashCode()} is a sure way to slow down performance of any hash
  * table. To ameliorate impact, when keys are {@link Comparable}, this class may use comparison order among keys to help
- * break ties.
+ * break ties.（只有在红黑树中才用到这个比较，普通的碰撞链没有用到这个）
  *
  * <p>
  * <strong>Note that this implementation is not synchronized.</strong> If multiple threads access a hash map
@@ -157,7 +157,8 @@ public class HashMap<K, V> extends AbstractMap<K, V> implements Map<K, V>, Clone
      * factor of two in time and space compared to taking no
      * precautions. But the only known cases stem from poor user
      * programming practices that are already so slow that this makes
-     * little difference.)
+     * little difference.就是说红黑树体现性能优势，需要hashCode()不同，或者hashCode()
+     * 相同但是可比较——比如String就是可比较的。如果都不满足，红黑树没有提升性能，反而浪费维护时间和空间，但是这种情况出现的已知场景都是写的很差的应用程序，在这种应用程序中，以上浪费本就不足为道)
      *
      * Because TreeNodes are about twice the size of regular nodes, we
      * use them only when bins contain enough nodes to warrant use
@@ -277,7 +278,7 @@ public class HashMap<K, V> extends AbstractMap<K, V> implements Map<K, V>, Clone
      *
      * @serial
      */
-    // (The javadoc description is true upon serialization.
+    // (The javadoc description is true upon serialization. //序列化时，不存在0值可能，所以javadoc是正确的
     // Additionally, if the table array has not been allocated, this
     // field holds the initial array capacity, or zero signifying
     // DEFAULT_INITIAL_CAPACITY.)
@@ -617,6 +618,7 @@ public class HashMap<K, V> extends AbstractMap<K, V> implements Map<K, V>, Clone
                             next = e.next;
 
                             //rehash时，由于是2倍扩容，只需要看hash & oldCap位置的值
+                            //比如本来是与1111比较，现在是与11111比较，所以只需要看高位就行
                             if ((e.hash & oldCap) == 0) {
                                 if (loTail == null)
                                     loHead = e;
@@ -638,7 +640,6 @@ public class HashMap<K, V> extends AbstractMap<K, V> implements Map<K, V>, Clone
                         }
                         if (hiTail != null) {
                             hiTail.next = null;
-                            // 本来是1111 &，现在是11111 &，所以是两倍，高位就行
                             newTab[j + oldCap] = hiHead;
                         }
                     }
@@ -733,7 +734,7 @@ public class HashMap<K, V> extends AbstractMap<K, V> implements Map<K, V>, Clone
             }
             if (node != null && (!matchValue || (v = node.value) == value || (value != null && value.equals(v)))) {
                 if (node instanceof TreeNode)
-                    ((TreeNode<K, V>)node).removeTreeNode(this, tab, movable);
+                    ((TreeNode<K, V>)node).removeTreeNode(this, tab, movable); //在内部可能完成红黑树的退化
                 else if (node == p)
                     tab[index] = node.next;
                 else
@@ -788,7 +789,7 @@ public class HashMap<K, V> extends AbstractMap<K, V> implements Map<K, V>, Clone
      * <tt>Iterator.remove</tt>, <tt>Set.remove</tt>, <tt>removeAll</tt>, <tt>retainAll</tt>, and <tt>clear</tt>
      * operations. It does not support the <tt>add</tt> or <tt>addAll</tt> operations.
      *
-     * @return a set view of the keys contained in this map
+     * @return a set view of the keys contained in this map （一个视图，底层是HashMap实例）
      */
     public Set<K> keySet() {
         Set<K> ks = keySet;
@@ -808,7 +809,7 @@ public class HashMap<K, V> extends AbstractMap<K, V> implements Map<K, V>, Clone
      * <tt>retainAll</tt> and <tt>clear</tt> operations. It does not support the <tt>add</tt> or <tt>addAll</tt>
      * operations.
      *
-     * @return a view of the values contained in this map
+     * @return a view of the values contained in this map（一个视图，底层是HashMap实例）
      */
     public Collection<V> values() {
         Collection<V> vs = values;
@@ -828,7 +829,7 @@ public class HashMap<K, V> extends AbstractMap<K, V> implements Map<K, V>, Clone
      * <tt>Set.remove</tt>, <tt>removeAll</tt>, <tt>retainAll</tt> and <tt>clear</tt> operations. It does not support
      * the <tt>add</tt> or <tt>addAll</tt> operations.
      *
-     * @return a set view of the mappings contained in this map
+     * @return a set view of the mappings contained in this map（一个视图，底层是HashMap实例）
      */
     public Set<Map.Entry<K, V>> entrySet() {
         Set<Map.Entry<K, V>> es;
@@ -1153,6 +1154,7 @@ public class HashMap<K, V> extends AbstractMap<K, V> implements Map<K, V>, Clone
         if (loadFactor <= 0 || Float.isNaN(loadFactor))
             throw new InvalidObjectException("Illegal load factor: " + loadFactor);
         s.readInt(); // Read and ignore number of buckets
+        //所以反序列化后，原来的节点数组大小并没有保留，而是重新计算了一个出来，只是确保：所有的映射记录得以复原了
         int mappings = s.readInt(); // Read number of mappings (size)
         if (mappings < 0)
             throw new InvalidObjectException("Illegal mappings count: " + mappings);
