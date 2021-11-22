@@ -80,7 +80,7 @@ import java.util.stream.Stream;
  * class, constructors may optionally specify an expected {@code concurrencyLevel} as an additional hint for internal
  * sizing. Note that using many keys with exactly the same {@code hashCode()} is a sure way to slow down performance of
  * any hash table. To ameliorate impact, when keys are {@link Comparable}, this class may use comparison order among
- * keys to help break ties.
+ * keys to help break ties.（只有在红黑树中才用到这个比较，普通的碰撞链没有用到这个）
  *
  * <p>
  * A {@link Set} projection of a ConcurrentHashMap may be created (using {@link #newKeySet()} or
@@ -251,10 +251,15 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
      * once a node is first in a bin, it remains first until deleted
      * or the bin becomes invalidated (upon resizing).
      *
+     * //todo
      * The main disadvantage of per-bin locks is that other update
      * operations on other nodes in a bin list protected by the same
-     * lock can stall, for example when user equals() or mapping
-     * functions take a long time.  However, statistically, under
+     * lock can stall,
+     *
+     * for example when using equals() or mapping
+     * functions take a long time.
+     *
+     * However, statistically, under
      * random hash codes, this is not a common problem.  Ideally, the
      * frequency of nodes in bins follows a Poisson distribution
      * (http://en.wikipedia.org/wiki/Poisson_distribution) with a
