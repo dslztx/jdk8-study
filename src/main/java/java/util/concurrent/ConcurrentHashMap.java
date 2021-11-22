@@ -435,7 +435,6 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
 
 
 
-    //todo
     /* ---------------- Constants -------------- */
     /**
      * The bin count threshold for using a tree rather than list for a bin. Bins are converted to trees when adding an
@@ -673,6 +672,7 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
         this.sizeCtl = cap;
     }
 
+    //todo
     /**
      * Spreads (XORs) higher bits of hash to lower and also forces top bit to 0. Because the table uses power-of-two
      * masking, sets of hashes that vary only in bits above the current mask will always collide. (Among known examples
@@ -1993,7 +1993,7 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
 
                 // 如果 sizeCtl 无符号右移  16 不等于 rs （ sc前 16 位如果不等于标识符，则标识符变化了）
                 // 或者 sizeCtl == rs + 1  （扩容结束了，不再有线程进行扩容）（默认第一个线程设置 sc ==rs 左移 16 位 + 2，当第一个线程结束扩容了，就会将 sc 减一。这个时候，sc 就等于 rs + 1）
-                // 或者 sizeCtl == rs + 65535  （如果达到最大帮助线程的数量，即 65535）
+                // 或者 sizeCtl == rs + 65535  （如果达到最大帮助线程的数量，即 65535）见MAX_RESIZERS变量声明
                 // 或者转移下标正在调整 （扩容结束）
                 // 结束循环，返回 table
 
