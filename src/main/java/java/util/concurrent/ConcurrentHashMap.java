@@ -251,12 +251,9 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
      * once a node is first in a bin, it remains first until deleted
      * or the bin becomes invalidated (upon resizing).
      *
-     * //todo
      * The main disadvantage of per-bin locks is that other update
      * operations on other nodes in a bin list protected by the same
-     * lock can stall,
-     *
-     * for example when using equals() or mapping
+     * lock can stall, for example when user equals() or mapping
      * functions take a long time.
      *
      * However, statistically, under
@@ -292,7 +289,7 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
      * applies when the number of nodes in a bin exceeds a
      * threshold. These TreeBins use a balanced tree to hold nodes (a
      * specialized form of red-black trees), bounding search time to
-     * O(log N).  Each search step in a TreeBin is at least twice as
+     * O(log N).  Each search step in a TreeBin is at least twice（表达错了，本意应该是想表达1/2） as
      * slow as in a regular list, but given that N cannot exceed
      * (1<<64) (before running out of addresses) this bounds search
      * steps, lock hold times, etc, to reasonable constants (roughly
@@ -302,14 +299,17 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
      * traversal pointers as regular nodes, so can be traversed in
      * iterators in the same way.
      *
+     *
      * The table is resized when occupancy exceeds a percentage
      * threshold (nominally, 0.75, but see below).  Any thread
      * noticing an overfull bin may assist in resizing after the
      * initiating thread allocates and sets up the replacement array.
      * However, rather than stalling, these other threads may proceed
-     * with insertions etc.  The use of TreeBins shields us from the
+     * with insertions etc（就是在扩容的时候，还是可能并发插入的，见putVal()方法中的//TAG1语句）.  The use of TreeBins shields us from the
      * worst case effects of overfilling while resizes are in
-     * progress.  Resizing proceeds by transferring bins, one by one,
+     * progress.
+     *
+     * Resizing proceeds by transferring bins, one by one,
      * from the table to the next table. However, threads claim small
      * blocks of indices to transfer (via field transferIndex) before
      * doing so, reducing contention.  A generation stamp in field
@@ -327,6 +327,7 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
      * contains the next table as its key. On encountering a
      * forwarding node, access and update operations restart, using
      * the new table.
+     *
      *
      * Each bin transfer requires its bin lock, which can stall
      * waiting for locks while resizing. However, because other
@@ -373,6 +374,7 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
      * distributions, the probability of this occurring at threshold
      * is around 13%, meaning that only about 1 in 8 puts check
      * threshold (and after resizing, many fewer do so).
+     *
      *
      * TreeBins use a special form of comparison for search and
      * related operations (which is the main reason we cannot use
@@ -431,6 +433,9 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
      * bulk operations.
      */
 
+
+
+    //todo
     /* ---------------- Constants -------------- */
     /**
      * The bin count threshold for using a tree rather than list for a bin. Bins are converted to trees when adding an
@@ -893,7 +898,7 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
             int n, i, fh;
             if (tab == null || (n = tab.length) == 0)
                 tab = initTable();
-            else if ((f = tabAt(tab, i = (n - 1) & hash)) == null) {
+            else if ((f = tabAt(tab, i = (n - 1) & hash)) == null) {    //TAG1
                 if (casTabAt(tab, i, null, new Node<K, V>(hash, key, value, null)))
                     break; // no lock when adding to empty bin
             } else if ((fh = f.hash) == MOVED)
