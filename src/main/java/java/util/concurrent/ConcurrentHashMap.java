@@ -672,9 +672,9 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
         this.sizeCtl = cap;
     }
 
-    //todo
     /**
-     * Spreads (XORs) higher bits of hash to lower and also forces top bit to 0. Because the table uses power-of-two
+     * Spreads (XORs) higher bits of hash to lower and also forces top bit to 0（这点跟HashMap中不一致）. Because the table uses
+     * power-of-two
      * masking, sets of hashes that vary only in bits above the current mask will always collide. (Among known examples
      * are sets of Float keys holding consecutive whole numbers in small tables.) So we apply a transform that spreads
      * the impact of higher bits downward. There is a tradeoff between speed, utility, and quality of bit-spreading.
@@ -851,7 +851,7 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
 
     /**
      * Returns {@code true} if this map maps one or more keys to the specified value. Note: This method may require a
-     * full traversal of the map, and is much slower than method {@code containsKey}.
+     * full traversal of the map（时间复杂度很高）, and is much slower than method {@code containsKey}.
      *
      * @param value value whose presence in this map is to be tested
      * @return {@code true} if this map maps one or more keys to the specified value
@@ -902,7 +902,7 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
                 if (casTabAt(tab, i, null, new Node<K, V>(hash, key, value, null)))
                     break; // no lock when adding to empty bin
             } else if ((fh = f.hash) == MOVED)
-                tab = helpTransfer(tab, f);   //正处于扩容状态，帮助并发扩容，// 如果对应槽位不为空，且他的 hash 值是 -1，说明正在扩容，那么就帮助其扩容。以加快速度
+                tab = helpTransfer(tab, f);   //如果对应槽位不为空，且他的 hash 值是 -1，说明正在扩容，那么就帮助其扩容，以加快扩容速度
             else {
                 V oldVal = null;
                 synchronized (f) {
@@ -943,6 +943,7 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
                 }
             }
         }
+
         addCount(1L, binCount);
         return null;
     }
@@ -1913,7 +1914,7 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
         int sc;
         while ((tab = table) == null || tab.length == 0) {
             if ((sc = sizeCtl) < 0)
-                Thread.yield(); // lost initialization race; just spin
+                Thread.yield(); // lost initialization race; just spin，已经在扩容中，申明可释放当前线程
             else if (U.compareAndSwapInt(this, SIZECTL, sc, -1)) {
                 try {
                     if ((tab = table) == null || tab.length == 0) {
@@ -1932,6 +1933,7 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
         return tab;
     }
 
+    //todo
     /**
      * Adds to count, and if table is too small and not already resizing, initiates transfer. If already resizing, helps
      * perform transfer if work is available. Rechecks occupancy after a transfer to see if another resize is already
@@ -1957,6 +1959,7 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
                 return;
             s = sumCount();
         }
+
         if (check >= 0) {
             Node<K, V>[] tab, nt;
             int n, sc;
