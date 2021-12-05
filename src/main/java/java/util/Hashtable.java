@@ -616,7 +616,7 @@ public class Hashtable<K,V>
     /**
      * Each of these fields are initialized to contain an instance of the
      * appropriate view the first time this view is requested.  The views are
-     * stateless, so there's no reason to create more than one of each.
+     * stateless, so there's no reason to create more than one of each（没有自己的状态字段，跟踪字段，直接基于底层Hashtable，所有即便多创建几个也是一样的）.
      */
     private transient volatile Set<K> keySet;
     private transient volatile Set<Map.Entry<K,V>> entrySet;
@@ -840,7 +840,7 @@ public class Hashtable<K,V>
          * abuses the loadFactor field to do double-duty as a hashCode
          * in progress flag, so as not to worsen the space performance.
          * A negative load factor indicates that hash code computation is
-         * in progress.
+         * in progress（就是借用了下loadFactory用作它用）.
          */
         int h = 0;
         if (count == 0 || loadFactor < 0)
